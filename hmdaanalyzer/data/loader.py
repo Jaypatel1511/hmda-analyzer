@@ -2,6 +2,7 @@
 Load HMDA LAR data from CFPB Data Browser API or local CSV.
 Free public API — no authentication required.
 """
+import io
 import os
 import requests
 import pandas as pd
@@ -29,20 +30,26 @@ def load_from_api(
     """
     Load HMDA LAR data from CFPB Data Browser API.
 
+    The CFPB API returns full state/county datasets as pre-built CSV files.
+    The ``limit`` parameter streams and stops at that many rows so you don't
+    have to download an entire multi-hundred-thousand-record state file.
+
     Args:
         year:   Data year e.g. 2023
         state:  Two-letter state code e.g. "IL"
         lei:    Lender LEI identifier
         county: County FIPS code e.g. "17031"
-        limit:  Max records to fetch
+        limit:  Maximum number of records to return (default 10,000)
 
     Returns:
-        Clean pandas DataFrame with standardized columns
+        Clean pandas DataFrame with standardized columns.
+
+    Raises:
+        RuntimeError: If the API returns an HTTP error, times out, or fails.
     """
     params = {
         "years": year,
         "actions_taken": "1,2,3,4,5",
-        "limit": min(limit, 1_000_000),
     }
     if state:
         params["states"] = state.upper()
@@ -53,20 +60,42 @@ def load_from_api(
 
     url = f"{HMDA_API_BASE}/csv"
 
+    print(f"Fetching HMDA data from CFPB API (year={year}, limit={limit:,})...")
+    r = None
     try:
-        print(f"Fetching HMDA data from CFPB API (year={year})...")
         r = requests.get(url, params=params, timeout=120, stream=True)
         r.raise_for_status()
 
-        from io import StringIO
-        content = r.content.decode("utf-8")
-        df = pd.read_csv(StringIO(content), dtype=str, low_memory=False)
+        # The CFPB API ignores a row-count query parameter — it returns the full
+        # state/county file. Stream line-by-line and stop at limit rows so we
+        # don't download hundreds of thousands of records the caller didn't ask for.
+        lines = []
+        for i, line in enumerate(r.iter_lines(decode_unicode=True)):
+            if i > limit:   # row 0 is the header; stop before appending row limit+1
+                break
+            lines.append(line)
+
+        df = pd.read_csv(io.StringIO("\n".join(lines)), dtype=str, low_memory=False)
         print(f"Loaded {len(df):,} LAR records")
         return _clean(df)
 
+    except requests.HTTPError as e:
+        raise RuntimeError(
+            f"CFPB API returned HTTP {e.response.status_code}. "
+            "Check that year, state, and county values are valid."
+        ) from e
+    except requests.Timeout:
+        raise RuntimeError(
+            "CFPB API timed out after 120s. "
+            "Try a smaller state or use load_sample() for offline testing."
+        ) from None
+    except (RuntimeError, KeyboardInterrupt, SystemExit):
+        raise
     except Exception as e:
-        print(f"API error: {e}. Use load_sample() for testing.")
-        return pd.DataFrame()
+        raise RuntimeError(f"Failed to load HMDA data from CFPB API: {e}") from e
+    finally:
+        if r is not None:
+            r.close()
 
 
 def load_from_file(path: str) -> pd.DataFrame:
@@ -85,6 +114,10 @@ def load_sample(n: int = 5000, seed: int = 42) -> pd.DataFrame:
     Generate synthetic HMDA LAR data for testing and demos.
     Realistic distribution based on 2023 national HMDA statistics.
     No internet connection required.
+
+    Units follow HMDA FIG conventions:
+      - ``income`` is in thousands of dollars (e.g. 85 → $85,000)
+      - ``loan_amount`` is in dollars (e.g. 225000 → $225,000)
     """
     import numpy as np
     rng = np.random.default_rng(seed)
@@ -92,27 +125,31 @@ def load_sample(n: int = 5000, seed: int = 42) -> pd.DataFrame:
     states = ["IL", "NY", "CA", "TX", "GA", "NC", "OH", "PA", "FL", "MI"]
     leis = [f"LEI{i:06d}" for i in range(1, 11)]
 
-    # Realistic denial rates by race (based on 2023 HMDA national data)
+    # Realistic denial rates by race (based on 2023 HMDA national data).
+    # Includes all derived_race values that appear in live CFPB data.
     race_denial_rates = {
-        "White":                       0.095,
-        "Black or African American":   0.195,
-        "Asian":                       0.090,
-        "Hispanic or Latino":          0.145,
-        "American Indian or Alaska Native": 0.175,
-        "Native Hawaiian or Other Pacific Islander": 0.160,
+        "White":                                         0.095,
+        "Black or African American":                     0.195,
+        "Asian":                                         0.090,
+        "Hispanic or Latino":                            0.145,
+        "American Indian or Alaska Native":              0.175,
+        "Native Hawaiian or Other Pacific Islander":     0.160,
+        "2 or more minority races":                      0.130,
+        "Race Not Available":                            0.115,
+        "Joint":                                         0.100,
     }
 
     races = list(race_denial_rates.keys())
-    race_weights = [0.65, 0.13, 0.07, 0.10, 0.02, 0.03]
+    race_weights = [0.60, 0.12, 0.06, 0.09, 0.02, 0.03, 0.03, 0.04, 0.01]
 
     records = []
     for i in range(n):
         race = rng.choice(races, p=race_weights)
         denial_prob = race_denial_rates[race]
 
-        # Income and loan amount correlated
+        # Income in thousands (HMDA convention), loan amount in dollars (HMDA convention)
         income = max(20, rng.normal(85, 45))
-        loan_amount = max(50, income * rng.uniform(2.5, 5.5))
+        loan_amount = max(50_000, income * 1_000 * rng.uniform(2.5, 5.5))
 
         # Action taken based on race denial probability
         r = rng.random()

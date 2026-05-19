@@ -16,7 +16,7 @@ from hmdaanalyzer.report.generator import (
     generate_disparity_report, summary_table,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = [
     "load_from_api", "load_from_file", "load_sample",
     "denial_rate_by_race", "disparity_ratio",

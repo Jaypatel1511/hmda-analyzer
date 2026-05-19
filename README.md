@@ -21,20 +21,26 @@ engineering to use. hmda-analyzer makes it accessible in Python.
 
     pip install hmda-analyzer
 
+Both of these import styles work after installation:
+
+    from hmdaanalyzer import denial_rate_by_race   # canonical form
+    from hmda_analyzer import denial_rate_by_race   # pip-name convention alias
+
 ---
 
 ## Quickstart
 
     from hmdaanalyzer import (
         load_sample, denial_rate_by_race, disparity_ratio,
-        lending_by_tract, lender_summary, generate_disparity_report,
+        lending_by_tract, lending_desert_score, lender_summary,
+        generate_disparity_report,
     )
 
     # Load sample data (no API required)
     df = load_sample(n=5000)
 
-    # Or load from CFPB API (real data)
-    # df = load_from_api(year=2023, state="IL")
+    # Or load from CFPB API — streams and stops at limit rows
+    # df = load_from_api(year=2023, state="IL", limit=10_000)
 
     # Denial rates by race
     rates = denial_rate_by_race(df)
@@ -44,9 +50,13 @@ engineering to use. hmda-analyzer makes it accessible in Python.
     disparities = disparity_ratio(df)
     print(disparities)
 
-    # Geographic analysis
+    # Geographic analysis — lending activity by census tract
     tracts = lending_by_tract(df)
-    deserts = lending_by_tract(df)
+    print(tracts.head())
+
+    # Lending desert identification — tracts with abnormally low application volume
+    deserts = lending_desert_score(df)
+    print(deserts.head())
 
     # Lender analysis
     summary = lender_summary(df, lei="LEI000001")
