@@ -185,7 +185,7 @@ def load_sample(n: int = 5000, seed: int = 42) -> pd.DataFrame:
             "census_tract": tract,
             "county_code": county_code,
             "state_code": state_fips,
-            "denial_reason_1": str(rng.choice([1, 3, 4, 9, 10], p=[0.3, 0.25, 0.2, 0.15, 0.1])) if action == 3 else "10",
+            "denial_reason-1": str(rng.choice([1, 3, 4, 9, 10], p=[0.3, 0.25, 0.2, 0.15, 0.1])) if action == 3 else "10",
             "interest_rate": str(round(rng.uniform(5.5, 8.5), 2)) if action == 1 else "",
             "rate_spread": str(round(rng.uniform(-0.5, 2.0), 2)) if action == 1 else "",
             "lei": rng.choice(leis),
@@ -197,8 +197,13 @@ def load_sample(n: int = 5000, seed: int = 42) -> pd.DataFrame:
 
 
 def _clean(df: pd.DataFrame) -> pd.DataFrame:
-    """Standardize and clean a raw HMDA LAR DataFrame."""
-    df.columns = df.columns.str.lower().str.strip()
+    """Standardize and clean a raw HMDA LAR DataFrame.
+
+    The CFPB Data Browser CSV names enumerated fields with hyphens
+    (e.g. ``denial_reason-1``, ``applicant_race-1``). We normalize those to
+    underscores so downstream code can address them by a single canonical name.
+    """
+    df.columns = df.columns.str.lower().str.strip().str.replace("-", "_", regex=False)
 
     numeric_cols = ["loan_amount", "income", "interest_rate", "rate_spread"]
     for col in numeric_cols:

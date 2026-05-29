@@ -104,7 +104,11 @@ jobs:
           /tmp/wheel_test_venv/bin/pip install --upgrade pip
           /tmp/wheel_test_venv/bin/pip install dist/*.whl "pytest>=7" pytest-cov
 
+      # The two checks below must run from /tmp, NOT the checked-out repo root:
+      # `python -c` sets sys.path[0] to the cwd, which would otherwise shadow
+      # the wheel-installed packages with the source tree (root-layout trap).
       - name: Confirm installed version matches the tag
+        working-directory: /tmp
         run: |
           INSTALLED=$(/tmp/wheel_test_venv/bin/python -c \
             "import hmdaanalyzer; print(hmdaanalyzer.__version__)")
@@ -117,13 +121,14 @@ jobs:
           fi
 
       - name: Assert hmdaanalyzer resolves to site-packages (not source tree)
+        working-directory: /tmp
         run: |
           /tmp/wheel_test_venv/bin/python -c "
-          import hmdaanalyzer
-          pkg_file = hmdaanalyzer.__file__
-          assert 'site-packages' in pkg_file, \
-              f'hmdaanalyzer resolves to {pkg_file!r} — expected site-packages, got source tree'
-          print('site-packages check passed:', pkg_file)
+          import hmdaanalyzer, hmda_analyzer
+          for mod in (hmdaanalyzer, hmda_analyzer):
+              assert 'site-packages' in mod.__file__, \
+                  f'{mod.__name__} resolves to {mod.__file__!r} — expected site-packages, got source tree'
+              print('site-packages check passed:', mod.__file__)
           "
 
       - name: Run test suite against installed wheel
