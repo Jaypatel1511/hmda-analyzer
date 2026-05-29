@@ -5,6 +5,7 @@ from hmdaanalyzer.analysis.disparity import (
     denial_rate_by_income_band, denial_reasons_by_race,
 )
 from hmdaanalyzer.data.loader import _clean
+from hmdaanalyzer.data.schema import DENIAL_REASONS
 
 
 def test_denial_rate_by_race_returns_df(sample_df):
@@ -60,7 +61,11 @@ def test_denial_reasons_by_race(sample_df):
     assert not result.empty
     expected_cols = {"derived_race", "denial_reason_label", "count", "total", "pct"}
     assert expected_cols.issubset(result.columns)
-    assert "Unknown" not in set(result["denial_reason_label"].unique())
+    # At least one real, mapped denial-reason label must be present. (We do NOT
+    # assert "Unknown" is absent: on live CFPB data it legitimately appears for
+    # Exempt/blank/unmapped reasons, so its absence is a synthetic-only assumption.)
+    labels = set(result["denial_reason_label"].unique())
+    assert labels & set(DENIAL_REASONS.values())
 
 
 def test_denial_reasons_by_race_handles_cfpb_hyphenated_columns():
@@ -84,5 +89,7 @@ def test_denial_reasons_by_race_handles_cfpb_hyphenated_columns():
     expected_cols = {"derived_race", "denial_reason_label", "count", "total", "pct"}
     assert expected_cols.issubset(result.columns)
     labels = set(result["denial_reason_label"].unique())
+    # Positive assertion: a real, mapped label is present (not asserting
+    # "Unknown" absent — see test_denial_reasons_by_race for why).
     assert "Credit history" in labels
-    assert "Unknown" not in labels
+    assert labels & set(DENIAL_REASONS.values())

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-05-29
+
 ### Fixed
 
 - **`denial_reasons_by_race()` returned empty on every live CFPB dataset.** The CFPB Data

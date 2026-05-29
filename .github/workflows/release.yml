@@ -8,6 +8,12 @@ on:
     tags:
       - 'v[0-9]*'
 
+# Least-privilege default for GITHUB_TOKEN. Checkout-using jobs (verify-version,
+# build, test-wheel) need only read access. The publish job declares its own
+# permissions block (id-token: write) and so does NOT inherit this default.
+permissions:
+  contents: read
+
 jobs:
   # ── Step 1: Verify the git tag matches pyproject.toml ─────────────────────
   verify-version:

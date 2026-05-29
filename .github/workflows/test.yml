@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: ["main"]
 
+# Least-privilege default for GITHUB_TOKEN. The test job only checks out and
+# runs the suite, so read access is sufficient.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
