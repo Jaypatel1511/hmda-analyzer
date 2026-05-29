@@ -104,7 +104,7 @@ CFPB HMDA Data Browser API — free, no API key required.
 
     PYTHONPATH=. pytest tests/ -v
 
-28 tests across all modules.
+35 tests across all modules.
 
 ---
 

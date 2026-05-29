@@ -1,19 +1,38 @@
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "hmda-analyzer"
-version = "0.2.0"
+version = "0.2.1"
 description = "HMDA mortgage lending disparity analyzer — denial rates, racial disparities, lending deserts, and lender benchmarking"
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "MIT"}
+license = "MIT"
 dependencies = [
     "pandas>=1.4.0",
     "numpy>=1.21.0",
     "requests>=2.27.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "pytest-cov",
+    "build",
+    "twine",
+]
+
 [project.urls]
 Homepage = "https://github.com/Jaypatel1511/hmda-analyzer"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["hmda_analyzer*", "hmdaanalyzer*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+markers = [
+    "live: marks tests that require live CFPB API access (deselect with -m 'not live')",
+]
