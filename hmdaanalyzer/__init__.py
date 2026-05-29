@@ -1,3 +1,10 @@
+from importlib.metadata import version, PackageNotFoundError
+
+try:
+    __version__ = version("hmda-analyzer")
+except PackageNotFoundError:
+    __version__ = "0.0.0+unknown"
+
 from hmdaanalyzer.data.loader import (
     load_from_api, load_from_file, load_sample,
 )
@@ -15,8 +22,6 @@ from hmdaanalyzer.analysis.lender import (
 from hmdaanalyzer.report.generator import (
     generate_disparity_report, summary_table,
 )
-
-__version__ = "0.2.0"
 __all__ = [
     "load_from_api", "load_from_file", "load_sample",
     "denial_rate_by_race", "disparity_ratio",
