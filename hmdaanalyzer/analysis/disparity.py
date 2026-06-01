@@ -5,6 +5,7 @@ Computes disparate impact ratios between racial/ethnic groups.
 import pandas as pd
 import numpy as np
 from hmdaanalyzer.data.schema import DISPARITY_THRESHOLDS, REFERENCE_RACE
+from hmdaanalyzer.exceptions import MissingColumnError
 
 
 def denial_rate_by_race(df: pd.DataFrame) -> pd.DataFrame:
@@ -17,8 +18,12 @@ def denial_rate_by_race(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         DataFrame with denial rates by race
     """
-    if "derived_race" not in df.columns or "is_denied" not in df.columns:
-        raise ValueError("DataFrame must have 'derived_race' and 'is_denied' columns")
+    missing = [c for c in ("derived_race", "is_denied") if c not in df.columns]
+    if missing:
+        raise MissingColumnError(
+            f"denial_rate_by_race requires columns {missing}; "
+            f"got: {list(df.columns)}"
+        )
 
     actionable = df[df["action_taken"].isin([1, 2, 3])].copy()
 
@@ -107,10 +112,13 @@ def denial_reasons_by_race(df: pd.DataFrame) -> pd.DataFrame:
     """
     from hmdaanalyzer.data.schema import DENIAL_REASONS
 
-    denied = df[df["is_denied"] == True].copy()
+    if "denial_reason_1" not in df.columns:
+        raise MissingColumnError(
+            f"denial_reasons_by_race requires column 'denial_reason_1'; "
+            f"got: {list(df.columns)}"
+        )
 
-    if "denial_reason_1" not in denied.columns:
-        return pd.DataFrame()
+    denied = df[df["is_denied"] == True].copy()
 
     denied["denial_reason_label"] = denied["denial_reason_1"].map(
         lambda x: DENIAL_REASONS.get(int(x), "Unknown") if pd.notna(x) else "Unknown"

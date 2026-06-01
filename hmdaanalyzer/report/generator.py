@@ -2,6 +2,7 @@
 Generate HMDA analysis reports.
 """
 import pandas as pd
+from hmdaanalyzer.exceptions import MissingColumnError
 from hmdaanalyzer.analysis.disparity import (
     denial_rate_by_race, disparity_ratio, denial_rate_by_income_band
 )
@@ -19,7 +20,12 @@ def generate_disparity_report(
     """
     Generate a full HMDA disparity analysis report as Markdown.
     """
-    if lei and "lei" in df.columns:
+    if lei is not None:
+        if "lei" not in df.columns:
+            raise MissingColumnError(
+                f"generate_disparity_report was given lei={lei!r} but requires "
+                f"column 'lei' to scope the report; got: {list(df.columns)}"
+            )
         analysis_df = df[df["lei"] == lei]
         scope = f"Lender: {lei}"
     else:

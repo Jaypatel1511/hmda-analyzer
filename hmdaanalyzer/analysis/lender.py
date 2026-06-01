@@ -4,6 +4,7 @@ Compare a lender's performance against market peers.
 """
 import pandas as pd
 from hmdaanalyzer.analysis.disparity import denial_rate_by_race, disparity_ratio
+from hmdaanalyzer.exceptions import MissingColumnError
 
 
 def lender_summary(df: pd.DataFrame, lei: str = None) -> dict:
@@ -15,16 +16,27 @@ def lender_summary(df: pd.DataFrame, lei: str = None) -> dict:
         lei: Lender LEI to filter to (optional)
 
     Returns:
-        Dict with key lender performance metrics
+        Dict with key lender performance metrics. An empty dict ``{}`` means a
+        *legitimate empty result* (no rows matched the lender / no actionable
+        applications) — never a schema problem. A missing required column raises
+        ``MissingColumnError`` instead, so an empty result can't mask a bad query.
     """
-    if lei and "lei" in df.columns:
+    if lei is not None:
+        if "lei" not in df.columns:
+            raise MissingColumnError(
+                f"lender_summary was given lei={lei!r} but requires column 'lei' "
+                f"to filter on; got: {list(df.columns)}"
+            )
         df = df[df["lei"] == lei]
 
+    # Legitimate empty result: schema is fine, the lei filter (or input) just
+    # matched no rows.
     if df.empty:
         return {}
 
     actionable = df[df["action_taken"].isin([1, 2, 3])]
     total = len(actionable)
+    # Legitimate empty result: rows exist but none are actionable applications.
     if total == 0:
         return {}
 
@@ -92,13 +104,20 @@ def top_lenders_by_volume(
     """
     Rank lenders by origination volume.
     """
-    if state and "state_code" in df.columns:
+    if state is not None and "state_code" not in df.columns:
+        raise MissingColumnError(
+            f"top_lenders_by_volume was given state={state!r} but requires column "
+            f"'state_code' to filter on; got: {list(df.columns)}"
+        )
+    if state is not None:
         df = df[df["state_code"] == state]
 
-    originated = df[df["action_taken"] == 1]
+    if "lei" not in df.columns:
+        raise MissingColumnError(
+            f"top_lenders_by_volume requires column 'lei'; got: {list(df.columns)}"
+        )
 
-    if "lei" not in originated.columns:
-        return pd.DataFrame()
+    originated = df[df["action_taken"] == 1]
 
     result = originated.groupby("lei").agg(
         originations=("loan_amount", "count"),

@@ -4,6 +4,7 @@ Identifies lending deserts and maps activity by census tract.
 """
 import pandas as pd
 import numpy as np
+from hmdaanalyzer.exceptions import MissingColumnError
 
 
 def lending_by_tract(df: pd.DataFrame) -> pd.DataFrame:
@@ -14,7 +15,10 @@ def lending_by_tract(df: pd.DataFrame) -> pd.DataFrame:
         DataFrame with application counts, denial rates, and loan volumes by tract
     """
     if "census_tract" not in df.columns:
-        raise ValueError("DataFrame must have 'census_tract' column")
+        raise MissingColumnError(
+            f"lending_by_tract requires column 'census_tract'; "
+            f"got: {list(df.columns)}"
+        )
 
     actionable = df[df["action_taken"].isin([1, 2, 3])].copy()
 
@@ -37,7 +41,10 @@ def lending_by_county(df: pd.DataFrame) -> pd.DataFrame:
     Aggregate HMDA lending activity by county.
     """
     if "county_code" not in df.columns:
-        raise ValueError("DataFrame must have 'county_code' column")
+        raise MissingColumnError(
+            f"lending_by_county requires column 'county_code'; "
+            f"got: {list(df.columns)}"
+        )
 
     actionable = df[df["action_taken"].isin([1, 2, 3])].copy()
 
@@ -91,8 +98,12 @@ def racial_composition_by_tract(df: pd.DataFrame) -> pd.DataFrame:
     Show racial composition of applicants by census tract.
     Useful for identifying tracts where lending may differ by applicant race.
     """
-    if "derived_race" not in df.columns or "census_tract" not in df.columns:
-        return pd.DataFrame()
+    missing = [c for c in ("derived_race", "census_tract") if c not in df.columns]
+    if missing:
+        raise MissingColumnError(
+            f"racial_composition_by_tract requires columns {missing}; "
+            f"got: {list(df.columns)}"
+        )
 
     result = df.groupby(
         ["census_tract", "derived_race"]
@@ -108,13 +119,15 @@ def lending_by_state(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggregate lending activity by state.
     """
-    state_col = "state_code" if "state_code" in df.columns else None
-    if state_col is None:
-        return pd.DataFrame()
+    if "state_code" not in df.columns:
+        raise MissingColumnError(
+            f"lending_by_state requires column 'state_code'; "
+            f"got: {list(df.columns)}"
+        )
 
     actionable = df[df["action_taken"].isin([1, 2, 3])].copy()
 
-    result = actionable.groupby(state_col).agg(
+    result = actionable.groupby("state_code").agg(
         applications=("is_denied", "count"),
         denials=("is_denied", "sum"),
         originations=("is_approved", "sum"),
