@@ -20,4 +20,21 @@ class MissingColumnError(ValueError):
     """
 
 
+def _require_columns(df, required, fn_name):
+    """
+    Raise :class:`MissingColumnError` if ``df`` is missing any of ``required``.
+
+    Names *all* missing columns and the calling function, so the message is the
+    same diagnosable form the analysis functions already emit. ``required`` order
+    is preserved in the reported list. Returns ``None``; call it for its side
+    effect before touching the columns.
+    """
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise MissingColumnError(
+            f"{fn_name} requires column(s) {missing}; "
+            f"got: {list(df.columns)}"
+        )
+
+
 __all__ = ["MissingColumnError"]

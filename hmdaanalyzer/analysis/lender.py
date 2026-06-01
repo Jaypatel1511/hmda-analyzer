@@ -4,7 +4,7 @@ Compare a lender's performance against market peers.
 """
 import pandas as pd
 from hmdaanalyzer.analysis.disparity import denial_rate_by_race, disparity_ratio
-from hmdaanalyzer.exceptions import MissingColumnError
+from hmdaanalyzer.exceptions import MissingColumnError, _require_columns
 
 
 def lender_summary(df: pd.DataFrame, lei: str = None) -> dict:
@@ -69,7 +69,8 @@ def lender_vs_market(
     Returns:
         DataFrame showing lender vs market denial rates by race
     """
-    lender_df = df[df["lei"] == lei] if "lei" in df.columns else df
+    _require_columns(df, ["lei"], "lender_vs_market")
+    lender_df = df[df["lei"] == lei]
 
     lender_rates = denial_rate_by_race(lender_df).rename(
         columns={"denial_rate": "lender_denial_rate",

@@ -80,6 +80,33 @@ Both of these import styles work after installation:
 
 ---
 
+## Error Handling
+
+If you pass a DataFrame that is missing a column an analysis requires, the function
+raises **`MissingColumnError`** (importable from `hmdaanalyzer` or `hmda_analyzer`)
+instead of silently returning an empty result. In a fair-lending context a silent
+empty result can read as "no disparity," so a schema problem fails loudly:
+
+    from hmdaanalyzer import MissingColumnError, lending_by_state
+
+    try:
+        lending_by_state(df)            # df has 'state' but not 'state_code'
+    except MissingColumnError as e:
+        print(e)                        # names the function and the missing column
+
+`MissingColumnError` subclasses `ValueError`, so existing `except ValueError`
+handlers keep working. This applies to the analysis functions and to filtering
+arguments: passing `lei=...` or `state=...` when that column is absent raises rather
+than silently computing whole-market results. A **well-formed query that simply
+matches no rows is not an error** — e.g. `lender_summary(df, lei=...)` with a valid
+schema but an unknown LEI still returns an empty `{}`, and
+`generate_disparity_report(df, lei=...)` returns a clean no-records report.
+
+> **Breaking change in 0.3.0:** functions that previously returned an empty result on
+> a missing column now raise `MissingColumnError`. See the CHANGELOG for the full list.
+
+---
+
 ## Disparity Ratio Thresholds
 
 Based on CFPB fair lending examination standards:

@@ -2,6 +2,62 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-01
+
+This is a **SemVer-breaking** release (0.2.1 → 0.3.0). When a required column is
+missing, analysis functions now **raise** `hmdaanalyzer.MissingColumnError` (a
+subclass of `ValueError`, so existing `except ValueError` handlers keep working).
+Some of these functions previously **silently returned an empty result**; others
+already raised a generic `ValueError`. In a fair-lending context a silent empty
+result could read as "no disparity"; a schema problem must now fail loudly — with a
+typed, diagnosable error — instead of masking a bad query.
+
+### Changed (BREAKING)
+
+- **Missing required column now raises `MissingColumnError`.** The error message
+  names the function and the missing column(s). Two prior behaviors are unified
+  under the new typed error:
+  - **Previously returned an empty result *silently*** (the dangerous case — an
+    empty result that could read as "no disparity"): `racial_composition_by_tract`,
+    `lending_by_state`, `top_lenders_by_volume`, and `denial_reasons_by_race`.
+  - **Previously raised a generic `ValueError`** (now upgraded to the typed
+    `MissingColumnError`, which still subclasses `ValueError`):
+    `denial_rate_by_race`, `lending_by_tract`, and `lending_by_county`.
+
+- **Silent filter-skips now raise.** When a filtering argument is supplied but the
+  column it filters on is absent, the call no longer silently computes
+  whole-market results — it raises `MissingColumnError`:
+  - `lender_summary(df, lei=...)` when `df` has no `lei` column
+  - `lender_vs_market(df, lei=...)` when `df` has no `lei` column (previously
+    compared the whole market against itself, yielding an all-zero `vs_market`)
+  - `generate_disparity_report(df, lei=...)` when `df` has no `lei` column
+  - `top_lenders_by_volume(df, state=...)` when `df` has no `state_code` column
+
+- **`lei=""` is now a real empty-matching filter value.** In 0.2.1 a falsy `lei`
+  (`""`) was treated as "all lenders"; truthiness guards (`if lei and ...`) are now
+  `if lei is not None`, so an empty string is an explicit filter that matches no
+  rows rather than silently widening the scope to the whole market.
+
+- **`generate_disparity_report` validates its schema up front and no longer emits a
+  misleading report.** It now checks the columns its sections require
+  (`action_taken`, `derived_race`, `is_denied`, `income`) before rendering and
+  raises `MissingColumnError` on a missing column, instead of swallowing the error
+  into a table cell and producing an empty "Key Findings" section that read as
+  "no disparity." For a `lei` that matches zero rows (including `lei=""`) it now
+  returns a clean *no-records* report instead of raising `IndexError`.
+
+### Added
+
+- **`MissingColumnError`** exported from both `hmdaanalyzer` and the `hmda_analyzer`
+  shim. Distinguishes a *schema problem* (missing column → raises) from a
+  *legitimate empty result* (well-formed query that matched no rows → still returns
+  an empty DataFrame/dict, e.g. `lender_summary` for an unknown but validly-typed
+  LEI).
+
+- **`tests/test_missing_column.py`** — through-function contract tests on real
+  `load_sample()` data covering every raising function, the filter-skip guards, the
+  legitimate-empty paths, and `MissingColumnError`'s `ValueError` compatibility.
+
 ## [0.2.1] - 2026-05-29
 
 ### Fixed

@@ -2,7 +2,7 @@
 Generate HMDA analysis reports.
 """
 import pandas as pd
-from hmdaanalyzer.exceptions import MissingColumnError
+from hmdaanalyzer.exceptions import MissingColumnError, _require_columns
 from hmdaanalyzer.analysis.disparity import (
     denial_rate_by_race, disparity_ratio, denial_rate_by_income_band
 )
@@ -19,7 +19,23 @@ def generate_disparity_report(
 ) -> str:
     """
     Generate a full HMDA disparity analysis report as Markdown.
+
+    Raises:
+        MissingColumnError: if ``df`` lacks a column the report's analysis
+            sections require, or if ``lei`` is given but ``df`` has no ``lei``
+            column. Validated up front so a schema problem raises a clear error
+            rather than being rendered as a misleading "no disparity" report.
     """
+    # Schema precondition: the report's denial-rate, disparity-ratio, and
+    # income-band sections require these columns. Validate the union up front and
+    # raise before rendering anything, so a missing column can never be swallowed
+    # into an error cell or an empty Key Findings section.
+    _require_columns(
+        df,
+        ["action_taken", "derived_race", "is_denied", "income"],
+        "generate_disparity_report",
+    )
+
     if lei is not None:
         if "lei" not in df.columns:
             raise MissingColumnError(
@@ -31,6 +47,22 @@ def generate_disparity_report(
     else:
         analysis_df = df
         scope = "All Lenders"
+
+    # Legitimate empty result: schema is fine, the lei filter (including lei="")
+    # just matched no rows. Render a clean no-records report instead of indexing
+    # into an empty frame (which would raise IndexError on .iloc[0] below).
+    if lei is not None and analysis_df.empty:
+        return "\n".join([
+            "# HMDA Lending Disparity Analysis Report",
+            f"## {title}",
+            "",
+            f"**Scope:** {scope}",
+            "**Total Records:** 0",
+            "",
+            "---",
+            "",
+            f"No records found for LEI {lei!r}.",
+        ])
 
     total = len(analysis_df)
     actionable = analysis_df[analysis_df["action_taken"].isin([1, 2, 3])]
@@ -60,6 +92,8 @@ def generate_disparity_report(
                 f"| {row['derived_race']} | {row['applications']:,} | "
                 f"{int(row['denials']):,} | {row['denial_rate']*100:.1f}% |"
             )
+    except MissingColumnError:
+        raise
     except Exception as e:
         lines.append(f"| Error computing denial rates: {e} |")
 
@@ -96,6 +130,8 @@ def generate_disparity_report(
                 f"{row['reference_denial_rate']*100:.1f}% | "
                 f"{ratio} | {level_emoji} |"
             )
+    except MissingColumnError:
+        raise
     except Exception as e:
         lines.append(f"| Error: {e} |")
 
@@ -116,6 +152,8 @@ def generate_disparity_report(
                 f"| {row['income_band']} | {row['applications']:,} | "
                 f"{row['denial_rate']*100:.1f}% |"
             )
+    except MissingColumnError:
+        raise
     except Exception as e:
         lines.append(f"| Error: {e} |")
 
@@ -139,6 +177,8 @@ def generate_disparity_report(
                         f"{row['disparity_ratio']:.1f}x denial rate vs White applicants"
                     )
             lines.append("")
+    except MissingColumnError:
+        raise
     except Exception:
         pass
 

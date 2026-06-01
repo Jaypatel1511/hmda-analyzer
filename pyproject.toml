@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hmda-analyzer"
-version = "0.2.1"
+version = "0.3.0"
 description = "HMDA mortgage lending disparity analyzer — denial rates, racial disparities, lending deserts, and lender benchmarking"
 readme = "README.md"
 requires-python = ">=3.9"
