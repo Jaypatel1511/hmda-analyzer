@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-06-23
+
+### Fixed
+
+- API requests now send an identifying User-Agent + Accept/Accept-Language
+  headers, resolving an HTTP 403 "Access Denied" from the Akamai edge that
+  was reproduced from cloud/datacenter environments (e.g. Google Colab).
+  Residential connections were unaffected.
+- HTTP errors now raise a typed `CFPBAPIError` (subclass of `RuntimeError`, so
+  existing `except RuntimeError` handlers keep working) with a status-aware,
+  accurate message and the API response body attached. A 403 is now correctly
+  described as an edge/access block common from cloud notebooks — not a
+  problem with the query's year/state/county values, which the previous
+  message wrongly implied.
+
+### Notes
+
+- Cloud/hosted environments may still hit edge blocks under some conditions;
+  the new message explains the situation and the local/manual-download fallback.
+
 ## [0.3.0] - 2026-06-01
 
 This is a **SemVer-breaking** release (0.2.1 → 0.3.0). When a required column is

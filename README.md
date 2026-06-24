@@ -125,13 +125,24 @@ CFPB HMDA Data Browser API — free, no API key required.
 
     https://ffiec.cfpb.gov/data-browser/
 
+### Cloud environments (Colab/hosted notebooks)
+
+From cloud/datacenter environments such as Google Colab, an API request can hit an
+HTTP 403 "Access Denied" from the CFPB edge (Akamai) even when the query is valid —
+it's an access/network block, not a problem with your year/state/county values.
+`hmda-analyzer` sends an identifying User-Agent and `Accept`/`Accept-Language`
+headers that clear this in the cases we reproduced, and a 403 now raises a typed
+`CFPBAPIError` explaining the situation. If you still hit a block, run locally or
+download the CSV directly from the HMDA Data Browser and load it with
+`load_from_file(...)`.
+
 ---
 
 ## Running Tests
 
     PYTHONPATH=. pytest tests/ -v
 
-35 tests across all modules.
+70 tests across all modules.
 
 ---
 

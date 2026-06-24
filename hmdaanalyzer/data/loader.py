@@ -7,6 +7,7 @@ import os
 import requests
 import pandas as pd
 from pathlib import Path
+from hmdaanalyzer._http import fetch
 from hmdaanalyzer.data.schema import (
     HMDA_API_BASE, CACHE_DIR, ACTION_TAKEN,
     APPROVED_ACTIONS, DENIED_ACTIONS,
@@ -61,16 +62,18 @@ def load_from_api(
     url = f"{HMDA_API_BASE}/csv"
 
     print(f"Fetching HMDA data from CFPB API (year={year}, limit={limit:,})...")
-    r = None
+    resp = None
     try:
-        r = requests.get(url, params=params, timeout=120, stream=True)
-        r.raise_for_status()
+        # fetch() sends the verified-passing CFPB header bundle and raises a typed
+        # CFPBAPIError (a RuntimeError) on an HTTP error status. Connection/timeout
+        # errors propagate unwrapped and are handled below.
+        resp = fetch(url, params=params, timeout=120, stream=True)
 
         # The CFPB API ignores a row-count query parameter — it returns the full
         # state/county file. Stream line-by-line and stop at limit rows so we
         # don't download hundreds of thousands of records the caller didn't ask for.
         lines = []
-        for i, line in enumerate(r.iter_lines(decode_unicode=True)):
+        for i, line in enumerate(resp.iter_lines(decode_unicode=True)):
             if i > limit:   # row 0 is the header; stop before appending row limit+1
                 break
             lines.append(line)
@@ -79,11 +82,6 @@ def load_from_api(
         print(f"Loaded {len(df):,} LAR records")
         return _clean(df)
 
-    except requests.HTTPError as e:
-        raise RuntimeError(
-            f"CFPB API returned HTTP {e.response.status_code}. "
-            "Check that year, state, and county values are valid."
-        ) from e
     except requests.Timeout:
         raise RuntimeError(
             "CFPB API timed out after 120s. "
@@ -94,8 +92,8 @@ def load_from_api(
     except Exception as e:
         raise RuntimeError(f"Failed to load HMDA data from CFPB API: {e}") from e
     finally:
-        if r is not None:
-            r.close()
+        if resp is not None:
+            resp.close()
 
 
 def load_from_file(path: str) -> pd.DataFrame:

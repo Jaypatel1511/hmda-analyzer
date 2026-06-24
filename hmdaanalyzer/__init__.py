@@ -6,6 +6,7 @@ except PackageNotFoundError:
     __version__ = "0.0.0+unknown"
 
 from hmdaanalyzer.exceptions import MissingColumnError
+from hmdaanalyzer._http import CFPBAPIError
 from hmdaanalyzer.data.loader import (
     load_from_api, load_from_file, load_sample,
 )
@@ -25,6 +26,7 @@ from hmdaanalyzer.report.generator import (
 )
 __all__ = [
     "MissingColumnError",
+    "CFPBAPIError",
     "load_from_api", "load_from_file", "load_sample",
     "denial_rate_by_race", "disparity_ratio",
     "denial_rate_by_income_band", "denial_reasons_by_race",
