@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-06
+
+### Added
+
+- **`load_range(start_year, end_year, ...)`** — fetch HMDA LAR across an inclusive
+  range of years and return one vertically-concatenated DataFrame with an
+  `activity_year` provenance column. Reachable under both `hmdaanalyzer` and
+  `hmda_analyzer`. Single-year `load_from_api` is unchanged.
+  - Each year is fetched with the existing single-year path, so `state`, `lei`,
+    `county`, and `limit` apply **identically to every year** (`limit` is
+    per-year).
+  - **Fail-loud, no partial:** if any year's fetch fails, `load_range` re-raises
+    immediately with the failing year named (a `CFPBAPIError` keeps its
+    status/body) and returns no partial frame.
+  - **Schema guard:** every fetched year is validated against a canonical column
+    set; a missing or unexpected column raises the new
+    **`SchemaValidationError`** (naming the year) rather than being silently
+    NaN-filled or dropped — a regression guard against a silent CFPB schema change.
+  - **Provenance:** the native `activity_year` field is used and asserted to match
+    the requested year; a wrong-year payload raises the new
+    **`ActivityYearMismatchError`**.
+  - **Legitimate empty:** a valid year matching zero rows is not an error — its
+    correctly-columned empty frame participates in the concat.
+- **`SchemaValidationError`** and **`ActivityYearMismatchError`** typed exceptions
+  (both subclass `ValueError`), importable from `hmdaanalyzer` / `hmda_analyzer`.
+
+### Notes
+
+- The CFPB Data Browser column schema is **identical across 2018–2025**
+  (empirically verified), so no columns are year-conditional — a single canonical
+  expected-column set validates every year.
+- Multi-year national pulls are enormous: the same filters apply to every year, so
+  always filter multi-year loads. `load_range` streams each year to `limit`; it
+  does not silently cap or block.
+
 ## [0.3.1] - 2026-06-23
 
 ### Fixed

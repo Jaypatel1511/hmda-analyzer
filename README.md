@@ -42,6 +42,11 @@ Both of these import styles work after installation:
     # Or load from CFPB API — streams and stops at limit rows
     # df = load_from_api(year=2023, state="IL", limit=10_000)
 
+    # Or load multiple years at once (inclusive range) with provenance
+    # from hmdaanalyzer import load_range
+    # df = load_range(2021, 2023, state="IL", county="17031", limit=10_000)
+    # df["activity_year"] tags each row's year; filters apply to every year
+
     # Denial rates by race
     rates = denial_rate_by_race(df)
     print(rates)
@@ -64,6 +69,40 @@ Both of these import styles work after installation:
     # Full disparity report
     report = generate_disparity_report(df, title="Illinois Mortgage Market 2023")
     print(report)
+
+---
+
+## Multi-Year Loading (`load_range`)
+
+`load_range(start_year, end_year, ...)` fetches HMDA LAR for **every year in the
+inclusive range** and returns one concatenated DataFrame with an `activity_year`
+provenance column:
+
+    from hmdaanalyzer import load_range
+
+    df = load_range(2021, 2023, state="IL", county="17031", limit=10_000)
+    df["activity_year"].value_counts()   # rows tagged by year
+
+- **Filters apply to every year.** `state`, `lei`, `county`, and `limit` are
+  forwarded identically to each per-year fetch; `limit` is **per year**.
+- **Fail-loud, no partial.** If any year's fetch fails, `load_range` raises
+  immediately with the failing year named (a `CFPBAPIError` keeps its HTTP status)
+  and returns **no** partial frame — it never silently skips a year.
+- **Schema guard.** Each year's columns are validated against a canonical set;
+  a missing or unexpected column raises `SchemaValidationError` naming the year,
+  rather than silently NaN-filling or dropping fields.
+- **Provenance checked.** The native `activity_year` is asserted to match the
+  requested year; a wrong-year payload raises `ActivityYearMismatchError`.
+- **Empty years are fine.** A valid year matching zero rows is not an error; its
+  empty frame just contributes no rows.
+
+The CFPB column schema is identical across **2018–2025** (2018 is the earliest year
+the API serves), so no columns are year-conditional.
+
+> ⚠️ **Scale.** Multi-year national pulls are enormous — the same filters apply to
+> every year, so a range with no `state`/`county` filter multiplies a full national
+> LAR file by the number of years. Always filter multi-year loads. `load_range`
+> streams each year to `limit`; it does not silently cap or block large pulls.
 
 ---
 
@@ -142,7 +181,7 @@ download the CSV directly from the HMDA Data Browser and load it with
 
     PYTHONPATH=. pytest tests/ -v
 
-70 tests across all modules.
+86 tests across all modules (offline/mocked; no live API calls).
 
 ---
 
