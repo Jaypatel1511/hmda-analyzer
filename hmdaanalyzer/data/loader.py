@@ -4,14 +4,17 @@ Free public API — no authentication required.
 """
 import io
 import os
+import datetime
 import requests
 import pandas as pd
 from pathlib import Path
-from hmdaanalyzer._http import fetch
+from hmdaanalyzer._http import fetch, CFPBAPIError
+from hmdaanalyzer.exceptions import SchemaValidationError, ActivityYearMismatchError
 from hmdaanalyzer.data.schema import (
     HMDA_API_BASE, CACHE_DIR, ACTION_TAKEN,
     APPROVED_ACTIONS, DENIED_ACTIONS,
     RACE_CODES, ETHNICITY_CODES, LOAN_PURPOSE, LOAN_TYPE,
+    EARLIEST_HMDA_YEAR, EXPECTED_LAR_COLUMNS,
 )
 
 
@@ -94,6 +97,162 @@ def load_from_api(
     finally:
         if resp is not None:
             resp.close()
+
+
+def _validate_year_range(start_year, end_year):
+    """Validate the requested [start_year, end_year] range (inclusive).
+
+    Raises ``TypeError`` if either bound is not a plain ``int`` (``bool`` is
+    rejected even though it subclasses ``int``), and ``ValueError`` if a bound is
+    below the earliest served year (2018), above the current calendar year, or if
+    ``start_year > end_year``. Runs BEFORE any network call so a bad range never
+    touches the API.
+    """
+    current_year = datetime.date.today().year
+    for label, y in (("start_year", start_year), ("end_year", end_year)):
+        if isinstance(y, bool) or not isinstance(y, int):
+            raise TypeError(
+                f"{label} must be an int, got {type(y).__name__}: {y!r}"
+            )
+        if y < EARLIEST_HMDA_YEAR:
+            raise ValueError(
+                f"{label}={y} is before the earliest HMDA year the CFPB API serves "
+                f"({EARLIEST_HMDA_YEAR})."
+            )
+        if y > current_year:
+            raise ValueError(
+                f"{label}={y} is in the future (current year is {current_year})."
+            )
+    if start_year > end_year:
+        raise ValueError(
+            f"start_year ({start_year}) must be <= end_year ({end_year})."
+        )
+
+
+def _validate_lar_schema(df: pd.DataFrame, year: int):
+    """Raise :class:`SchemaValidationError` if ``df`` deviates from the canonical
+    CFPB LAR column set for a 2018+ query. Names the year and the offending
+    columns. This is the regression guard against a silent CFPB schema change."""
+    actual = set(df.columns)
+    missing = EXPECTED_LAR_COLUMNS - actual
+    unexpected = actual - EXPECTED_LAR_COLUMNS
+    if missing or unexpected:
+        raise SchemaValidationError(
+            f"HMDA year {year} returned an unexpected column schema. "
+            f"missing={sorted(missing)}; unexpected={sorted(unexpected)}. "
+            f"The CFPB Data Browser schema may have changed; "
+            f"update EXPECTED_LAR_COLUMNS (with the drift documented) before trusting this load."
+        )
+
+
+def _assert_activity_year(df: pd.DataFrame, year: int):
+    """Assert the native ``activity_year`` in ``df`` matches the requested ``year``.
+
+    Catches the API returning the wrong year's data. An empty frame (a legitimate
+    zero-row year) has no values to check and passes. The native column is a string
+    (e.g. ``"2023"``), so we compare against ``str(year)``.
+    """
+    if len(df) == 0:
+        return
+    returned = set(df["activity_year"].dropna().astype(str).unique())
+    if returned != {str(year)}:
+        raise ActivityYearMismatchError(
+            f"Requested HMDA year {year} but the API returned rows with "
+            f"activity_year={sorted(returned)}. The API returned the wrong year's data."
+        )
+
+
+def load_range(
+    start_year: int,
+    end_year: int,
+    state: str = None,
+    lei: str = None,
+    county: str = None,
+    limit: int = 10_000,
+) -> pd.DataFrame:
+    """
+    Load HMDA LAR data across an INCLUSIVE range of years and return one
+    vertically-concatenated DataFrame with an ``activity_year`` provenance column.
+
+    Each year in ``[start_year, end_year]`` is fetched with the single-year
+    :func:`load_from_api` path (same headers, streaming, ``limit``, and typed
+    error handling), so all other filters — ``state``, ``lei``, ``county``,
+    ``limit`` — apply IDENTICALLY to every year. Single-year ``load_from_api`` is
+    unchanged; this is a strict addition.
+
+    Contract:
+      * **Fail-loud, no partial.** If ANY year's fetch raises, ``load_range``
+        re-raises immediately with the failing year named and returns NO frame —
+        there is no catch-and-continue and no partial result.
+      * **Schema guard.** Every fetched year is validated against the canonical
+        2018+ column set; a missing or unexpected column raises
+        :class:`~hmdaanalyzer.SchemaValidationError` (naming the year).
+      * **Provenance.** The native ``activity_year`` field is used and asserted to
+        match the requested year; a wrong-year payload raises
+        :class:`~hmdaanalyzer.ActivityYearMismatchError`.
+      * **Legitimate empty.** A valid year that simply matches zero rows is NOT an
+        error — its correctly-columned empty frame participates in the concat.
+
+    Args:
+        start_year: First year (inclusive). int, ``2018 <= start_year``.
+        end_year:   Last year (inclusive). int, ``end_year <= current year``.
+        state:      Two-letter state code e.g. "IL" (forwarded to every year).
+        lei:        Lender LEI identifier (forwarded to every year).
+        county:     County FIPS code e.g. "17031" (forwarded to every year).
+        limit:      Max records PER YEAR (default 10,000; applied to each year).
+
+    Returns:
+        One concatenated, index-reset DataFrame spanning all requested years.
+
+    Raises:
+        TypeError:  If a year bound is not a plain int.
+        ValueError: If a year bound is out of range or ``start_year > end_year``.
+        CFPBAPIError / RuntimeError: If any year's fetch fails (year named).
+        SchemaValidationError:       If any year's columns deviate from the canonical set.
+        ActivityYearMismatchError:   If any year returns the wrong year's data.
+
+    Scale note:
+        Multi-year national pulls are enormous — the SAME filters apply to every
+        year, so a multi-year call with no ``state``/``county`` filter multiplies a
+        full national LAR file by the number of years. Always filter multi-year
+        loads; this function does not silently cap or block, it just streams each
+        year to ``limit``.
+    """
+    _validate_year_range(start_year, end_year)
+
+    years = list(range(start_year, end_year + 1))
+    print(
+        f"Loading HMDA range {start_year}–{end_year} "
+        f"({len(years)} year{'s' if len(years) != 1 else ''}), limit={limit:,}/year..."
+    )
+
+    frames = []
+    for year in years:
+        try:
+            year_df = load_from_api(
+                year=year, state=state, lei=lei, county=county, limit=limit,
+            )
+        except CFPBAPIError as e:
+            # Preserve the typed CFPB error (status/body/url) but name the year.
+            # FAIL-LOUD, no partial: we abort before any concat.
+            raise CFPBAPIError(
+                f"load_range failed fetching year {year}: {e}",
+                status_code=e.status_code,
+                response_body=e.response_body,
+                url=e.url,
+            ) from e
+        except Exception as e:
+            raise RuntimeError(
+                f"load_range failed fetching year {year}: {e}"
+            ) from e
+
+        _validate_lar_schema(year_df, year)
+        _assert_activity_year(year_df, year)
+        frames.append(year_df)
+
+    combined = pd.concat(frames, ignore_index=True)
+    print(f"Loaded {len(combined):,} LAR records across {len(years)} year(s)")
+    return combined
 
 
 def load_from_file(path: str) -> pd.DataFrame:

@@ -20,6 +20,29 @@ class MissingColumnError(ValueError):
     """
 
 
+class SchemaValidationError(ValueError):
+    """
+    Raised by :func:`hmdaanalyzer.load_range` when a fetched year's frame does not
+    match the canonical CFPB LAR column set
+    (:data:`hmdaanalyzer.data.schema.EXPECTED_LAR_COLUMNS`).
+
+    This is the load-bearing regression guard against a silent CFPB schema change:
+    a year with a *missing* or *unexpected* column raises here (naming the year and
+    the offending columns) rather than being silently concatenated with NaN-filled
+    or dropped fields. Subclasses :class:`ValueError` for the same back-compat
+    reason as :class:`MissingColumnError`.
+    """
+
+
+class ActivityYearMismatchError(ValueError):
+    """
+    Raised by :func:`hmdaanalyzer.load_range` when the native ``activity_year`` in a
+    fetched year's rows does not match the year that was requested — i.e. the API
+    returned the wrong year's data. Names both the requested and the returned
+    year(s). Subclasses :class:`ValueError`.
+    """
+
+
 def _require_columns(df, required, fn_name):
     """
     Raise :class:`MissingColumnError` if ``df`` is missing any of ``required``.
@@ -37,4 +60,8 @@ def _require_columns(df, required, fn_name):
         )
 
 
-__all__ = ["MissingColumnError"]
+__all__ = [
+    "MissingColumnError",
+    "SchemaValidationError",
+    "ActivityYearMismatchError",
+]
