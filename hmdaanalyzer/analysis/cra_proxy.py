@@ -40,6 +40,16 @@ from hmdaanalyzer.exceptions import _require_columns
 # Category order is fixed; LMI = Low + Moderate.
 _CATEGORIES = ["Low", "Moderate", "Middle", "Upper"]
 
+# §5 out-of-range ceiling: no legitimate tract plausibly exceeds ~600-700% of
+# area median (recon max ~276); FFIEC special/underwater-tract sentinels are far
+# above this. A value above the ceiling (or negative / non-finite) is outside
+# every band's domain and is excluded, never fabricated into a band.
+_TRACT_PCT_CEILING = 1000.0
+
+# Sentinel year label for originations whose activity_year is missing/NA in a
+# multi-year frame — surfaced in the excluded tally, never silently dropped.
+_UNKNOWN_YEAR = "unknown"
+
 
 def get_methodology_path(filename: str = "cra_proxy_methodology.md") -> Path:
     """Return the filesystem path to a bundled methodology document.
@@ -134,16 +144,25 @@ def _classify_tract(series: pd.Series):
     ``series`` is the raw ``tract_to_msa_income_percentage`` (object/string or
     NaN). Unknown-first: null / blank / non-numeric / literal ``0`` → "Unknown"
     (reason ``unknown_tract``) BEFORE any threshold. A literal 0 must not reach
-    the ``< 50`` gate.
+    the ``< 50`` gate. Out-of-range next (§5): negative / non-finite / above the
+    ``_TRACT_PCT_CEILING`` → "Unknown" (reason ``out_of_range_tract_pct``) — a
+    special/underwater-tract sentinel must never satisfy a band.
     """
     num = pd.to_numeric(series, errors="coerce")  # blank / "NA" / non-numeric -> NaN
     is_unknown = num.isna() | (num == 0)
+    # Out-of-range (§5): negative, non-finite, or above ceiling — outside every
+    # band's domain, excluded AFTER the Unknown routing so a literal 0 stays
+    # unknown_tract rather than being reclassified here.
+    is_oor = (~is_unknown) & (
+        ~np.isfinite(num) | (num < 0) | (num > _TRACT_PCT_CEILING)
+    )
 
     cat = pd.Series("Unknown", index=series.index, dtype=object)
     reason = pd.Series(pd.NA, index=series.index, dtype=object)
     reason[is_unknown] = "unknown_tract"
+    reason[is_oor] = "out_of_range_tract_pct"
 
-    valid = ~is_unknown
+    valid = ~is_unknown & ~is_oor
     cat[valid & (num < 50)] = "Low"
     cat[valid & (num >= 50) & (num < 80)] = "Moderate"
     cat[valid & (num >= 80) & (num < 120)] = "Middle"
@@ -158,7 +177,9 @@ def _classify_borrower(income: pd.Series, area_median: pd.Series):
     NA/blank income → "Unknown" (reason ``na_income``); a 0/blank/NA area median
     is a MISSING DENOMINATOR → "Unknown" (reason ``missing_area_median``) and is
     NEVER divided (income/0 == inf would fabricate Upper). No 1111 handling —
-    1111 is a real $1.111M Upper borrower.
+    1111 is a real $1.111M Upper borrower. A negative MFI% (negative income, real
+    in the LAR) or a non-finite MFI% is out-of-range (reason
+    ``out_of_range_income``) — outside every band's domain, never Low.
     """
     inc = pd.to_numeric(income, errors="coerce")
     mfi = pd.to_numeric(area_median, errors="coerce")
@@ -174,6 +195,14 @@ def _classify_borrower(income: pd.Series, area_median: pd.Series):
     valid = ~na_income & ~missing_median
     pct = pd.Series(np.nan, index=income.index, dtype=float)
     pct[valid] = inc[valid] * 1000.0 / mfi[valid] * 100.0
+
+    # Out-of-range (§4/LOW-1): a negative MFI% (negative income — real in the LAR,
+    # e.g. business loss) or a non-finite MFI% is outside every band's domain and
+    # must not inflate LMI by landing in Low. The mfi==0 → inf path is already
+    # caught above as missing_area_median; this catches the numerator side.
+    oor_income = valid & (~np.isfinite(pct) | (pct < 0))
+    reason[oor_income] = "out_of_range_income"
+    valid = valid & ~oor_income
 
     cat[valid & (pct < 50)] = "Low"
     cat[valid & (pct >= 50) & (pct < 80)] = "Moderate"
@@ -249,7 +278,10 @@ def cra_proxy_distribution(
         year_column: Provenance year column. If the frame carries ≥2 distinct
             years, distributions are produced PER YEAR (each year's own annual
             ``ffiec_msa_md_median_family_income`` is applied, since classification
-            is row-wise); otherwise a single table with ``year=None``.
+            is row-wise); otherwise a single table with ``year=None``. In
+            multi-year mode, originations with a missing/NA year are surfaced as a
+            separate ``year="unknown"`` cut (all excluded, reason ``unknown_year``)
+            so no row silently vanishes and the universe always reconciles (§12).
 
     Returns:
         A :class:`CraProxyDistribution` — a container of tidy
@@ -289,6 +321,12 @@ def cra_proxy_distribution(
         grouping = [
             (y, df[df[year_column].astype(str) == y]) for y in years
         ]
+        # NA/missing activity_year rows belong to no year — route them to a
+        # separate labeled cut and count them as excluded (unknown_year) so they
+        # never silently vanish and the universe always reconciles (§12).
+        na_year = df[df[year_column].isna()]
+        if len(na_year):
+            grouping.append((_UNKNOWN_YEAR, na_year))
     else:
         grouping = [(None, df)]
 
@@ -298,7 +336,12 @@ def cra_proxy_distribution(
         for year, ydf in grouping:
             sub = ydf[ydf["action_taken"].isin(actions)]
             for dim in dims:
-                if dim == "tract":
+                if year == _UNKNOWN_YEAR:
+                    # Missing-year originations are excluded as unknown_year,
+                    # never classified into a band.
+                    cat = pd.Series("Unknown", index=sub.index, dtype=object)
+                    reason = pd.Series("unknown_year", index=sub.index, dtype=object)
+                elif dim == "tract":
                     cat, reason = _classify_tract(
                         sub["tract_to_msa_income_percentage"]
                     )

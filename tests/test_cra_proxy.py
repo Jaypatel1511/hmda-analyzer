@@ -16,6 +16,7 @@ import pytest
 from hmdaanalyzer import (
     cra_proxy_distribution, STANDARD_CRA_PROXY_CAVEAT, get_methodology_path,
 )
+from hmdaanalyzer.analysis.cra_proxy import _classify_tract, _classify_borrower
 
 
 # ── fixture builder ───────────────────────────────────────────────────────────
@@ -262,3 +263,112 @@ def test_get_methodology_path_returns_bundled_file():
 def test_get_methodology_path_missing_raises():
     with pytest.raises(FileNotFoundError):
         get_methodology_path("does_not_exist.md")
+
+
+# ── Fix 1 (MED-2 + LOW-1): out-of-range clamp — never fabricate a band ────────
+# §5: negative / non-finite / above-ceiling(1000) tract pct → excluded, not a band.
+def test_tract_special_sentinel_out_of_range_is_excluded_not_upper():
+    """A special/underwater-tract sentinel (e.g. 9999.99, above the §5 ceiling of
+    1000) must route to the excluded tally, NOT satisfy the >=120 gate as Upper.
+    Mutation that bites: remove the out-of-range guard → 9999.99 lands in Upper."""
+    df = _frame([_row(tract_pct="9999.99")])
+    t = _table(cra_proxy_distribution(df, by="tract"), "tract")
+    assert _count(t, "Upper") == 0
+    assert t.excluded.get("out_of_range_tract_pct", 0) == 1
+
+
+def test_tract_inf_is_excluded():
+    df = _frame([_row(tract_pct="inf")])
+    t = _table(cra_proxy_distribution(df, by="tract"), "tract")
+    assert t.classified_denominator == 0
+    assert t.excluded.get("out_of_range_tract_pct", 0) == 1
+
+
+def test_tract_negative_is_excluded_not_low():
+    """A negative tract pct is outside every band's domain (§4) — it must not
+    inflate LMI by landing in Low. Mutation that bites: drop the negative guard
+    → -5 passes the <50 gate into Low."""
+    df = _frame([_row(tract_pct="-5")])
+    t = _table(cra_proxy_distribution(df, by="tract"), "tract")
+    assert _count(t, "Low") == 0
+    assert t.excluded.get("out_of_range_tract_pct", 0) == 1
+
+
+def test_tract_legit_high_still_upper_clamp_does_not_over_exclude():
+    """Recon max was ~276; a legitimate high value (450) must still classify as
+    Upper — the clamp must not over-exclude real tracts."""
+    df = _frame([_row(tract_pct="450")])
+    t = _table(cra_proxy_distribution(df, by="tract"), "tract")
+    assert _count(t, "Upper") == 1
+    assert t.excluded.get("out_of_range_tract_pct", 0) == 0
+
+
+def test_borrower_negative_income_is_excluded_not_low():
+    """Recon: negative income is REAL in the LAR (business loss; 46/60k rows).
+    A negative MFI% is outside every band's domain (§4) and must not inflate LMI
+    by landing in Low. Mutation that bites: drop the negative guard → -500 →
+    negative MFI% passes the <50 gate into Low."""
+    df = _frame([_row(income=-500, mfi="100000")])
+    t = _table(cra_proxy_distribution(df, by="borrower"), "borrower")
+    assert _count(t, "Low") == 0
+    assert t.excluded.get("out_of_range_income", 0) == 1
+
+
+def test_borrower_inf_income_is_excluded_not_upper():
+    df = _frame([_row(income=np.inf, mfi="100000")])
+    t = _table(cra_proxy_distribution(df, by="borrower"), "borrower")
+    assert _count(t, "Upper") == 0
+    assert t.excluded.get("out_of_range_income", 0) == 1
+
+
+def test_borrower_legit_income_unaffected_by_clamp():
+    df = _frame([_row(income=40, mfi="100000")])  # legitimate Low
+    t = _table(cra_proxy_distribution(df, by="borrower"), "borrower")
+    assert _count(t, "Low") == 1
+    assert t.excluded.get("out_of_range_income", 0) == 0
+
+
+# ── Fix 2 (MED-1): multi-year NA activity_year → unknown_year, never vanish ────
+def test_multi_year_na_year_routes_to_unknown_year_not_vanish():
+    """The audit repro: a 3-origination multi-year frame with one NA-year row.
+    The NA-year row must land in excluded[unknown_year], not silently vanish, so
+    per-year denominators + all excluded reconcile to the universe (3). Mutation
+    that bites: revert to dropna()-only grouping → the NA row vanishes → total 2."""
+    df = _frame([
+        _row(tract_pct="40", year="2022"),
+        _row(tract_pct="40", year="2023"),
+        _row(tract_pct="40", year=np.nan),  # NA-year origination
+    ])
+    result = cra_proxy_distribution(df, by="tract")
+    total = (sum(t.classified_denominator for t in result.tables)
+             + sum(sum(t.excluded.values()) for t in result.tables))
+    assert total == 3, f"universe not reconciled: {total} != 3"
+    unknown_year_total = sum(t.excluded.get("unknown_year", 0) for t in result.tables)
+    assert unknown_year_total == 1
+
+
+def test_single_year_unaffected_by_unknown_year_rule():
+    """Single-year mode must be unchanged — no unknown_year table, one None-year
+    table, all rows accounted."""
+    df = _frame([_row(tract_pct="40"), _row(tract_pct="0")])
+    result = cra_proxy_distribution(df, by="tract")
+    assert [t.year for t in result.tables] == [None]
+    t = result.tables[0]
+    assert t.classified_denominator + sum(t.excluded.values()) == 2
+    assert "unknown_year" not in t.excluded
+
+
+# ── Fix 3 (LOW-2): pin the Middle/Upper boundary on BOTH classifiers ──────────
+def test_boundary_pin_tract_119_99_middle_120_upper():
+    """Pin 119.99→Middle and 120.0→Upper so a future reorder of the assignment
+    block cannot silently move the boundary. Mutation that bites: Middle upper
+    bound <120 → <=120 AND remove/reorder the Upper overwrite → 120 → Middle."""
+    cat, _ = _classify_tract(pd.Series(["119.99", "120"], dtype=object))
+    assert list(cat) == ["Middle", "Upper"]
+
+
+def test_boundary_pin_borrower_119_99_middle_120_upper():
+    inc = pd.Series([119.99, 120.0], dtype=float)
+    mfi = pd.Series(["100000", "100000"], dtype=object)
+    cat, _ = _classify_borrower(inc, mfi)
+    assert list(cat) == ["Middle", "Upper"]
