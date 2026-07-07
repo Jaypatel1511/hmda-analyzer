@@ -29,6 +29,7 @@
     - **Missing area-median guard (borrower).** `ffiec_msa_md_median_family_income == "0"`
       (FFIEC-unmatched tracts) is a missing denominator — excluded, never divided
       (`income / 0 == inf` would fabricate Upper).
+    - **Out-of-range & unknown-year exclusions.** Out-of-range values and unknown-year rows are excluded and surfaced (`out_of_range_tract_pct` / `out_of_range_income` / `unknown_year` reasons).
   - **Multi-year:** a frame spanning ≥2 `activity_year`s yields per-year distributions;
     each year's own annual `ffiec_msa_md_median_family_income` is applied (never one year's
     MFI across the panel).
