@@ -2,6 +2,61 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-06
+
+### Added
+
+- **`cra_proxy_distribution(df, *, by="borrower"|"tract"|"both", include_purchased=False,
+  year_column="activity_year")`** — a pure descriptive transform that computes the
+  CRA-**proxy** borrower-income and geographic (tract-income) distribution of mortgage
+  **originations** (`action_taken == 1`) from a HMDA LAR frame (the frame returned by
+  `load_from_api` / `load_range`). No fetch, no network. Reachable under both
+  `hmdaanalyzer` and `hmda_analyzer`.
+  - Returns tidy per-`(dimension, universe, year)` tables (`category`, `count`,
+    `cra_proxy_share`) plus, for each, the **classified denominator** and an explicit
+    **excluded/unclassified count**. **No composite scalar** — a single score invites
+    being read as a CRA grade.
+  - **Bands (12 CFR §25/§228/§345):** Low `0 < MFI% < 50`, Moderate `[50, 80)`, Middle
+    `[80, 120)`, Upper `≥ 120`; LMI = Low + Moderate. Lower-inclusive, upper-exclusive.
+  - **Fabrication firewall (the whole point):**
+    - **Unknown-first (tract).** `tract_to_msa_income_percentage` reserves `0` for
+      "Unknown / not available" (verified at recon as the literal string `"0"` in the
+      public LAR); Unknown rows (null / blank / `0`) are routed to an excluded tally
+      **before** any threshold, so a literal `0` never reaches the `< 50` gate and is
+      never fabricated into Low.
+    - **No `1111`/"Exempt" drop (borrower).** `income` is in *thousands* and
+      always-required; `1111` == a real **$1,111,000** Upper-income borrower and is kept.
+    - **Missing area-median guard (borrower).** `ffiec_msa_md_median_family_income == "0"`
+      (FFIEC-unmatched tracts) is a missing denominator — excluded, never divided
+      (`income / 0 == inf` would fabricate Upper).
+  - **Multi-year:** a frame spanning ≥2 `activity_year`s yields per-year distributions;
+    each year's own annual `ffiec_msa_md_median_family_income` is applied (never one year's
+    MFI across the panel).
+  - **Purchased loans** (`action_taken == 6`) are excluded by default; `include_purchased=True`
+    adds them as a **separate, labeled** `universe="purchased"` cut — never blended.
+  - **Proxy firewall in the output shape:** the share column is named `cra_proxy_share`
+    (so "CRA" never appears without "proxy" adjacent, even in a copied cell); **every table**
+    carries the `STANDARD_CRA_PROXY_CAVEAT` (not-assessment-area-bound, not-a-performance-measure)
+    and the explicit "distribution only; no comparator — not interpretable as CRA
+    performance" line; borrower tables also carry the combined-income upward-bias caveat and,
+    when `by="both"`, the differing-denominators warning.
+- **`STANDARD_CRA_PROXY_CAVEAT`** — the standing proxy caveat string, exported under both
+  import aliases.
+- **`get_methodology_path(filename="cra_proxy_methodology.md")`** — accessor returning the
+  path to the CRA-proxy methodology bundled **inside the wheel**, so the firewall and
+  limitations travel with the installed tool. Raises `FileNotFoundError` for an unknown name.
+
+### Notes
+
+- **This is a PROXY, not CRA analysis.** It is never a CRA rating, grade, metric, or
+  performance evaluation. It is **not assessment-area-bound** (HMDA has no assessment-area
+  concept), mortgage-only, and its reporter population ≠ CRA-covered institutions.
+- **No comparator/benchmark in v1** — the meaningful CRA comparator is a demographic
+  (ACS/census) baseline, deferred to v2 with the census join. `income` and the two FFIEC
+  fields are **census-appended to the public LAR** (not "HMDA-only").
+- Borrower and tract distributions use **different denominators** (NA-income multifamily /
+  non-natural-person loans carry a valid tract) — **do not difference the two LMI%s**.
+
 ## [0.4.0] - 2026-07-06
 
 ### Added

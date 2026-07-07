@@ -28,6 +28,8 @@ No inference, no significance, no protected-class crossing, no composite scalar,
 no comparator (v1). See the bundled methodology (``get_methodology_path``).
 """
 from dataclasses import dataclass
+from importlib import resources
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -37,6 +39,29 @@ from hmdaanalyzer.exceptions import _require_columns
 
 # Category order is fixed; LMI = Low + Moderate.
 _CATEGORIES = ["Low", "Moderate", "Middle", "Upper"]
+
+
+def get_methodology_path(filename: str = "cra_proxy_methodology.md") -> Path:
+    """Return the filesystem path to a bundled methodology document.
+
+    The methodology — fabrication firewall and limitations included — ships
+    inside the wheel so it travels with the installed tool.
+
+    Args:
+        filename: Name of the bundled doc (default the CRA-proxy methodology).
+
+    Returns:
+        A :class:`pathlib.Path` to the bundled file.
+
+    Raises:
+        FileNotFoundError: if no bundled file by that name exists.
+    """
+    ref = resources.files("hmdaanalyzer.methodology").joinpath(filename)
+    if not ref.is_file():
+        raise FileNotFoundError(
+            f"bundled methodology file not found: {filename!r}"
+        )
+    return Path(str(ref))
 
 # ── Firewall caveat strings (bound to every table, not a strippable footer) ───
 STANDARD_CRA_PROXY_CAVEAT = (

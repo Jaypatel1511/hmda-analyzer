@@ -13,7 +13,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hmdaanalyzer import cra_proxy_distribution, STANDARD_CRA_PROXY_CAVEAT
+from hmdaanalyzer import (
+    cra_proxy_distribution, STANDARD_CRA_PROXY_CAVEAT, get_methodology_path,
+)
 
 
 # ── fixture builder ───────────────────────────────────────────────────────────
@@ -245,3 +247,18 @@ def test_shares_sum_to_one_over_classified_denominator():
     share_col = [c for c in t.distribution.columns if "cra_proxy" in c][0]
     assert t.classified_denominator == 4
     assert t.distribution[share_col].sum() == pytest.approx(1.0)
+
+
+# ── bundled methodology accessor (travels with the installed tool) ───────────
+def test_get_methodology_path_returns_bundled_file():
+    p = get_methodology_path()
+    assert p.is_file()
+    text = p.read_text(encoding="utf-8")
+    # the firewall + limitations travel with the tool
+    assert "PROXY" in text
+    assert "assessment-area" in text.lower()
+
+
+def test_get_methodology_path_missing_raises():
+    with pytest.raises(FileNotFoundError):
+        get_methodology_path("does_not_exist.md")

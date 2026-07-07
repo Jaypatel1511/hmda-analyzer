@@ -24,7 +24,7 @@ from hmdaanalyzer.analysis.lender import (
     lender_summary, lender_vs_market, top_lenders_by_volume,
 )
 from hmdaanalyzer.analysis.cra_proxy import (
-    cra_proxy_distribution, STANDARD_CRA_PROXY_CAVEAT,
+    cra_proxy_distribution, STANDARD_CRA_PROXY_CAVEAT, get_methodology_path,
 )
 from hmdaanalyzer.report.generator import (
     generate_disparity_report, summary_table,
@@ -40,6 +40,6 @@ __all__ = [
     "lending_by_tract", "lending_by_county", "lending_by_state",
     "lending_desert_score", "racial_composition_by_tract",
     "lender_summary", "lender_vs_market", "top_lenders_by_volume",
-    "cra_proxy_distribution", "STANDARD_CRA_PROXY_CAVEAT",
+    "cra_proxy_distribution", "STANDARD_CRA_PROXY_CAVEAT", "get_methodology_path",
     "generate_disparity_report", "summary_table",
 ]

@@ -116,6 +116,59 @@ the API serves), so no columns are year-conditional.
 - Lending desert identification (low application volume tracts)
 - Lender vs market comparison
 - Top lenders by origination volume
+- **CRA-proxy distribution** — borrower-income & tract-income distribution of
+  originations (`cra_proxy_distribution`; see below)
+
+---
+
+## CRA-Proxy Distribution (`cra_proxy_distribution`)
+
+Descriptive borrower-income and geographic (tract-income) distribution of mortgage
+**originations**, approximating the *distribution dimensions* a CRA lending analysis
+looks at. It is a **pure transform** on a frame you already loaded — no fetch, no network.
+
+    from hmdaanalyzer import cra_proxy_distribution, load_from_api
+
+    df = load_from_api(year=2023, state="RI")
+    result = cra_proxy_distribution(df, by="both")   # "borrower" | "tract" | "both"
+
+    for t in result.tables:
+        print(t.dimension, t.year, "denominator:", t.classified_denominator,
+              "excluded:", t.excluded)
+        print(t.distribution)          # category, count, cra_proxy_share
+
+Each table is tidy — `category` (Low / Moderate / Middle / Upper), `count`, and
+`cra_proxy_share` — plus the **classified denominator** and an explicit
+**excluded/unclassified count**. Bands follow 12 CFR §25/§228/§345 (Low `0 < MFI% < 50`,
+Moderate `[50, 80)`, Middle `[80, 120)`, Upper `≥ 120`; LMI = Low + Moderate).
+A frame spanning ≥2 `activity_year`s produces **per-year** tables, each using that
+year's own annual area median. Purchased loans (`action_taken == 6`) are excluded by
+default; `include_purchased=True` adds them as a separate, labeled cut — never blended.
+
+### ⚠️ This is a PROXY — read before using the numbers
+
+`cra_proxy_distribution` is **not** a CRA rating, grade, metric, or performance evaluation.
+Every returned table carries `STANDARD_CRA_PROXY_CAVEAT` and an explicit no-comparator
+line, and the share column is named `cra_proxy_share` so no copied cell reads as a CRA
+metric. The limits, prominently:
+
+- **Not assessment-area-bound.** CRA distribution tests are computed within a bank's
+  designated assessment area(s); HMDA has no assessment-area concept, so this spans all
+  HMDA lending in the requested geography — a different population than any CRA exam
+  evaluates. (The largest gap.)
+- **Mortgage-only**; the reporter population ≠ CRA-covered institutions.
+- **No comparator/benchmark in v1** — a distribution alone is **not interpretable as CRA
+  performance**. The demographic (ACS/census) baseline is deferred to v2.
+- **Borrower and tract denominators differ.** NA-income multifamily / non-natural-person
+  loans are excluded from the borrower denominator but carry a valid tract (so they count
+  in the geographic denominator). **Do not difference the two LMI%s.**
+- HMDA `income` is the (often combined) income relied on in the credit decision — an
+  upward-biased proxy that tends to **understate** the LMI borrower share.
+
+The full methodology — including the fabrication firewall — ships inside the wheel:
+
+    from hmdaanalyzer import get_methodology_path
+    print(get_methodology_path().read_text())
 
 ---
 
