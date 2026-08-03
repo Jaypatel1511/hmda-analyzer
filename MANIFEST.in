@@ -1,0 +1,42 @@
+# Why this file exists — measured on this repo, not inherited.
+#
+# setuptools' legacy sdist default matches only `tests/test*.py`. It therefore
+# omitted `tests/conftest.py` and `tests/__init__.py`. conftest.py defines the
+# fixtures half the shipped suite depends on, so the suite that shipped inside
+# the sdist could not run: installing the published 0.5.0 sdist and running its
+# own tests/ gave **59 passed, 55 errors** — every error a fixture lookup
+# failing at setup, across test_disparity, test_geographic, test_missing_column
+# and test_report.
+#
+# This reproduces ONLY from a clean checkout. A local `python -m build` in a
+# working tree that already has `hmda_analyzer.egg-info/` reuses the stale
+# SOURCES.txt, which lists conftest.py, and produces a CORRECT sdist. Since
+# `*.egg-info/` is gitignored, CI never has that seed — so the artifact CI ships
+# is broken while the one a maintainer builds by hand looks fine. Verified: the
+# file list of the 0.5.0 sdist on PyPI is identical to a fresh-clone build.
+#
+# Fifth instance of this defect in the portfolio: sbic-tracker, oz-tracker,
+# cdfi-fund-tracker and nmtc-mapper all hit it first. The fix was written four
+# times and propagated nowhere, so this change is paired with a `test-sdist` job
+# in release.yml that unpacks the built tarball and runs ITS suite. The
+# MANIFEST.in is only what makes that job pass; the job is what stops this from
+# silently regressing. Packaging that is never installed from is packaging that
+# is never verified.
+recursive-include tests *.py
+
+include README.md
+include CHANGELOG.md
+include CONTRIBUTING.md
+include pyproject.toml
+
+# pyproject.toml is load-bearing for the shipped suite beyond metadata: it
+# carries [tool.pytest.ini_options], which registers the `live` marker. Without
+# it in the tarball, a test-sdist run emits PytestUnknownMarkWarning and
+# --strict-markers turns that into a collection error.
+
+# examples/ is intentionally NOT shipped — the demo notebook is a repo artifact,
+# not part of the distributed package.
+prune examples
+
+global-exclude *.pyc
+global-exclude __pycache__/*
