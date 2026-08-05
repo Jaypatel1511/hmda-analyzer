@@ -1,8 +1,40 @@
 # Census-tract vintage in multi-year HMDA frames — methodology
 
-> **Status: v4, POST-RE-AUDIT, PRE-BUILD.** Methodology-first artifact. No code
-> exists for this feature and none should be written until this document has had
-> a short fresh-session confirmation pass.
+> **Status: v5, POST-BUILD, POST-HOSTILE-AUDIT.** The code exists. v4's
+> "PRE-BUILD" banner is superseded: build 1 shipped on branch
+> `feat/0.6.0-tract-vintage-rule`, was hostile-audited, and returned
+> **fix-then-ship**. This revision records the fixes. The audit's verdict on the
+> payload — "15/15 silent wrong answers become 15/15 refusals, 7/7 legitimate
+> frames stay silent, nothing in the diff makes a number wrong" — stands
+> unchanged; the design was not in question.
+>
+> **What changed in v5, in one list.** Three gates could not fail in the ways
+> their names promised and one guard had a live bypass, so each is now
+> falsifiable-by-injection rather than merely present:
+>
+> 1. **The desert floor is derived, not written down twice** (§M3.3a). The
+>    `app_percentile < 25` threshold existed as a literal in four places with
+>    nothing tying them together; moving it left `DESERT_TRACT_FLOOR` wrong and
+>    the entire suite green, fabricating negatives for every frame of 5–10 tracts.
+>    It is now one exported constant with the floor derived from it at import.
+> 2. **A null `activity_year` no longer bypasses the guard** — and neither does a
+>    `float64` year column, which is the sharper half the review did not have:
+>    one blank cell flips the dtype, `int("2021.0")` raises, every year collapsed
+>    to UNMAPPED, and a **decennial-spanning frame passed the guard silently**
+>    (§M1.3, coverage item 20).
+> 3. **The uncited 2024 tract entry is removed** (§O item 10). Its premise was
+>    wrong at the granularity HMDA keys on, and §O item 1 now measures that
+>    premise failing empirically on Alaska.
+> 4. **The nationwide 2023→2024 refusal prices itself** (coverage item 19), the
+>    refusal message names constants that exist (§M1.3), a tract output stamps
+>    **both** maps that govern it (§M4.3), and UNKNOWN is distinguishable from
+>    NO_YEAR_COLUMN instead of both being an absent column (§M3.3a).
+> 5. **§O item 1, the last release blocker, is CLOSED** — both county change
+>    records located, read and cited. The negative result that came with it is
+>    load-bearing and is recorded there.
+> 6. **§M6.5's harm sentence mixed denominators** and understated the measured
+>    harm by roughly half. Restated with one denominator: 1,695 of 1,742
+>    tract-years, not 845 of 871.
 >
 > **What changed in v4 — one decision, and it is a removal.** §O item 8 asked
 > whether the measured per-county disjointness limb should ship at all. **It does
@@ -261,15 +293,44 @@ moving on their own schedules, and §M5.2 option 2 sends users *to* those keys a
 the escape route, so shipping a guard on only the tract key would harden the exit
 door and leave the corridor open. All three have the same shape:
 
+~~**The sketch that stood here is STRUCK.** It read:~~
+
 ```
-TRACT_GEOID_BASIS_BY_YEAR  : {2018..2021 -> 2010, 2022..2025 -> 2020}
+~~TRACT_GEOID_BASIS_BY_YEAR  : {2018..2021 -> 2010, 2022..2025 -> 2020}~~
+~~COUNTY_CODE_BASIS_BY_YEAR  : {2018..2021 -> 2010, 2022, 2023 -> 2020,~~
+~~                              2024, 2025 -> 2023}~~
+~~MSA_CODE_BASIS_BY_YEAR     : {2018..2021 -> 2010, 2022, 2023 -> 2020,~~
+~~                              2024, 2025 -> 2023}~~
+```
+
+**Why it is struck.** The sketch maps **2025 in all three maps**. That contradicts
+§0, §M1.3, §M2.2 and §O item 2, every one of which holds that 2025 is UNKNOWN in
+all three maps because no citation for its basis exists — and 2025 is *the*
+load-bearing case for the UNKNOWN state, present tense, already served by the API.
+It also maps 2024 in the tract map, which §O item 10 removes. A future reader
+implementing from this sketch would add two uncited entries and believe they were
+following the document. This is the same shape as the `-lt 14` defect: a stale
+example left standing next to the rule it contradicts, where the example is the
+thing that gets copied.
+
+**The maps as they actually ship** — and the module, not this sketch, is the
+record:
+
+```
+TRACT_GEOID_BASIS_BY_YEAR  : {2018..2021 -> 2010, 2022, 2023 -> 2020}
+                             # 2024, 2025 ABSENT = UNKNOWN (§M1.3, §O item 10)
 COUNTY_CODE_BASIS_BY_YEAR  : {2018..2021 -> 2010, 2022, 2023 -> 2020,
-                              2024, 2025 -> 2023}     # see §M2.3, §M6.7
+                              2024 -> 2023}          # see §M2.3, §M6.7
+                             # 2025 ABSENT = UNKNOWN
 MSA_CODE_BASIS_BY_YEAR     : {2018..2021 -> 2010, 2022, 2023 -> 2020,
-                              2024, 2025 -> 2023}     # see §M2.3 — boundary at
-                                                      # 2022 is a CITATION, not a
-                                                      # measurement
+                              2024 -> 2023}          # see §M2.3 — the 2022
+                             # 2025 ABSENT = UNKNOWN  # boundary is a CITATION,
+                                                      # not a measurement
 ```
+
+No year may be added to this block without being added to the module with a
+citation in the same change. If the two ever disagree, the module is right and
+this document is stale — which is the failure mode that produced the strike above.
 
 The MSA map's 2022 boundary comes from CFPB's *Summary of 2023 Data* ("OMB
 definitions released in 2020 that became effective for HMDA purposes in 2022") and
@@ -583,6 +644,31 @@ auditable, cannot be fitted to a sample, and says the same thing on data nobody 
 measured. A shape needs a constant, and the constant needs a sample, and the sample
 was the one that motivated the search. Where a citation is available, it wins; where
 it is not, §M1.2b's coverage item says so rather than substituting a shape.
+
+> **Build-2 status of the county consult: correct, retained, and with NO LIVE
+> CASE.** Removing the uncited 2024 tract entry (§O item 10) made 2024 UNMAPPED for
+> tracts, so a CT 2023+2024 tract frame is now refused by the **UNKNOWN rule**
+> before the basis comparison is reached — `CONSULTED_MAPS` is iterated for the
+> unmapped-year check first. There is no longer any shipped year-pair with
+> agreeing tract bases and disagreeing county bases, so nothing exercises this
+> limb on the shipped maps.
+>
+> **This is stated rather than glossed, because "the mechanism that catches
+> Connecticut" is a claim this document makes repeatedly and it is no longer the
+> operative one.** Every such passage now names the UNKNOWN rule as what fires and
+> the county consult as what *would*.
+>
+> The limb is retained and must not be deleted. It is the only thing that catches
+> a county re-scheme at a year whose tract basis is cited and unchanged — the
+> configuration build 1 actually shipped, and the configuration that returns the
+> instant a human reads the FFIEC vintage and adds a cited 2024 tract entry. The
+> test that covers it restores that entry for its duration
+> (`test_the_county_consult_still_catches_connecticut_if_2024_is_ever_cited`) and
+> says on its face that it is conditional, rather than presenting itself as
+> coverage of a shipped path. The Connecticut test that *does* cover the shipped
+> path now asserts the UNKNOWN mechanism, and asserts that the basis comparison is
+> **not** reached — a test named for a guarantee it does not provide is the
+> misdescribed gate this engagement keeps closing.
 
 #### ~~Limb 2 — measured: per-county disjointness~~ — **REMOVED from the 0.6.0 payload**
 
@@ -1205,10 +1291,22 @@ not the safe one.** Where keys are replaced, rows fall into disjoint buckets and
 the row count visibly inflates. Where keys persist, rows silently merge. That much
 holds. But the v1 draft went on to treat replacement as harmless, and §M6.5 now
 measures that to be false: CT 2023+2024 pooled produces 1,742 rows where 871 are
-expected — visibly wrong — *and* silently corrupts the percentile of 845 of 871
-tracts, flipping 25 desert verdicts, because `lending_desert_score` ranks against
-a reference distribution that doubled. **Replacement is loud in the row count and
-silent in every derived statistic.** That distinction drives §M3.
+expected — visibly wrong — *and* silently corrupts the percentile of **1,695 of
+those 1,742 tract-years**, flipping **25** desert verdicts, because
+`lending_desert_score` ranks against a reference distribution that doubled.
+**Replacement is loud in the row count and silent in every derived statistic.**
+That distinction drives §M3.
+
+> **Denominator correction (0.6.0 build 2 review).** This sentence previously read
+> "845 of 871 tracts, flipping 25 desert verdicts". That mixes denominators: 845 of
+> 871 is the **2023 half** against the **2023 half's** tract count, while 25 is the
+> flip count across **both** halves. Recomputed on the same measurement, with one
+> denominator throughout: **1,695 of 1,742 tract-years** carry a wrong
+> `app_percentile` and **25** carry a wrong `is_lending_desert` verdict. Per half:
+> 845/871 (2023) and 850/871 (2024); 11 flips and 14 flips. The aggregate figures
+> 384 → 381 and 25 were and remain exact. The old phrasing **understated** the
+> harm by roughly half — an accuracy defect rather than a safety one, and one
+> that appeared in a shipped harm claim in a fair-lending tool.
 
 ~~and it is the reason §M1.2a keeps a measured limb rather than relying on
 replacement being self-announcing.~~ **Struck in v4** — this clause was newly false
@@ -1701,6 +1799,41 @@ the artefact. **Decision: the channel is the returned object**, the same standar
   `basis_year` and `dropped_rows_by_year`. A dict can carry provenance even though
   it cannot carry a column.
 
+**Revision (build 2): "no basis" was signalled by an ABSENT column, and an absence
+is not a signal.** The draft above specifies what to write when a basis exists and
+is silent on what to write when none does. The implementation resolved that by
+omitting the column — for the right local reason, since writing `NaN` flips the
+column to `float64` (§M4.2) and writing a guess is the defect the module exists to
+prevent. But it produced **two distinct epistemic situations with one signal**:
+
+```
+UNKNOWN year (2025-only frame)     -> no tract_geoid_vintage column
+No activity_year column at all     -> no tract_geoid_vintage column
+                                      identical columns, identical shape,
+                                      in BOTH the frame and the dict channel
+```
+
+"There is a year and nobody has cited its basis" and "there is no year to derive a
+basis from" are different facts with different remedies — the first is answered by
+a human reading a citation, the second by the caller supplying a year column — and
+the artefact could not tell them apart. An absence also reaches the artefact
+*unreadably*: a reader who finds no column cannot distinguish it from a column that
+was never going to be written.
+
+**Decision: emit an explicit STRING status column, always, one per consulted map.**
+`tract_geoid_vintage_status` and `county_code_vintage_status`, taking
+`CITED` / `UNKNOWN` / `NO_YEAR_COLUMN`; the dict channel carries the same fact as
+`<key>_basis_status`. Three consequences, each deliberate:
+
+- **A string, not a nullable numeric.** No `NaN`-dtype problem, survives
+  `pd.concat` and a CSV round-trip unchanged, and asserts no basis.
+- **Always present, including `CITED`.** A status column that appeared only in the
+  unhappy cases would re-create this exact defect one level up, with *its* absence
+  as the signal.
+- **The basis column is still omitted rather than `NaN`-filled** when no basis
+  exists. The status is what makes that omission *readable* instead of merely
+  observable; it does not replace it.
+
 **Carry-forward: the document's own two findings collide with its own
 requirement.** §M3.3 requires the selected basis year present on the returned
 frame. §M4.1 measures `.agg()` dropping the column, and `lending_by_tract` **is**
@@ -1925,6 +2058,40 @@ later. `tract_geoid_vintage` names the thing it governs — the key — and buys
 nothing else. The cost is a longer name that diverges from nmtc-mapper's
 `TRACT_VINTAGE`; §M1.2 already argues that divergence is correct, because the two
 things genuinely are not the same thing.
+
+**Revision (build 2): a tract aggregation is governed by TWO maps and stamped
+one.** The naming rule above is right and was applied too narrowly. `lending_by_tract`
+consults `TRACT_GEOID_BASIS_BY_YEAR` *and* `COUNTY_CODE_BASIS_BY_YEAR` (§M1.2b,
+§M2.1) — a county-scheme change is necessarily a tract-key change — and wrote only
+`tract_geoid_vintage`. That is a column that **under-describes what governed the
+output**, which is the same misdescription trap this section is about, in the other
+direction: not a name claiming too much, but a stamp claiming too little.
+
+The consequence is concrete and it lands on the escape route this document
+*endorses*. §M5.2 option 1 sends a user across the Connecticut boundary to two
+panels. Both panels carried `tract_geoid_vintage = 2020` — truthfully, since the
+tract basis genuinely agrees — so a `pd.concat` of the two halves the guard had
+just refused came out **labelled coherent by its own provenance**. Nothing stops a
+user from doing that concat, and nothing in the result said not to.
+
+**Decision: every consulted map gets a column pair on the output** — its basis
+year where one can be asserted, and its status always (§M3.3a). A tract
+aggregation therefore carries `tract_geoid_vintage` and `county_code_vintage`; a
+county aggregation carries `county_code_vintage` only, since the county key
+consults one map. The column names come from a single `VINTAGE_COLUMN_BY_KEY`
+lookup, so the same fact has one name wherever it is written — a tract output's
+county stamp and a county output's county stamp are the same column, which is the
+point.
+
+> **Naming note.** The build-2 review specified this column as
+> `county_code_basis_year`, matching the **dict** channel's key. It ships as
+> `county_code_vintage`, matching the **column** channel's existing name for the
+> identical fact on `lending_by_county`'s output. Taking the review's name would
+> have given one fact two column names depending on which function produced it —
+> the trap this section exists to close. The dict channel keeps
+> `county_code_basis_year`, unchanged. The requirement the review was after — the
+> two panels' provenance must disagree — is met either way, and is asserted by
+> `test_reconcatenating_the_two_endorsed_panels_yields_disagreeing_provenance`.
 
 ### M4.4 The schema guard collides with this, today
 
@@ -2543,9 +2710,16 @@ prompt a second look, which is the operational meaning of "silent".
 **Half 2 — individual numbers are silently corrupted, in bulk.** Per-tract
 `applications` and `denials` are untouched, exactly as the fragmentation argument
 predicts. But `app_percentile`, `desert_score` and `is_lending_desert` are derived
-from the *reference distribution*, and pooling doubled it. 845 of 871 tracts get a
-wrong percentile from the 2023 side and 850 of 871 from the 2024 side; **25 tracts
-get a wrong desert verdict** — the boolean a fair-lending screen acts on.
+from the *reference distribution*, and pooling doubled it. **1,695 of 1,742
+tract-years get a wrong `app_percentile`** — 845 of 871 from the 2023 side and 850
+of 871 from the 2024 side — and **25 get a wrong desert verdict**, 11 from the 2023
+side and 14 from the 2024 side. That boolean is the one a fair-lending screen acts
+on.
+
+State the total with the total's denominator. Every summary of this measurement
+elsewhere in the document and in `geographic.py` used to pair the 2023 half's
+numerator (845) with the 2023 half's denominator (871) and then the flip count for
+both halves (25), which reads as a smaller harm than the one measured.
 
 **The mechanism is the one this document already proved two pages earlier, in
 §M6.1.** That section establishes that `lending_desert_score` ranks over the
@@ -2887,9 +3061,10 @@ stopped at the mode that announces itself.
    year→basis rule declares it safe. **The v1 draft's stated mitigation — "the
    failure is loud (row counts roughly double) rather than silent" and "no
    individual number is silently corrupted" — is false in both halves.** Measured
-   on live 2023–2024 data: no warning, no exception, no vintage column; 845 of 871
-   tracts get a wrong `app_percentile` and 25 get a wrong `is_lending_desert`
-   verdict, while the aggregate desert count moves only 384 → 381. Per-tract
+   on live 2023–2024 data: no warning, no exception, no vintage column; **1,695 of
+   1,742 tract-years** get a wrong `app_percentile` and **25** get a wrong
+   `is_lending_desert` verdict (per half: 845/871 and 850/871; 11 and 14 flips),
+   while the aggregate desert count moves only 384 → 381. Per-tract
    `applications` and `denials` are the *only* things that survive intact. §M6.5.
    **What now covers it:** **not** the measured check, which was the v2 draft's
    answer and is wrong. CT produces *zero* disjoint-within counties — every county
@@ -3078,6 +3253,115 @@ stopped at the mode that announces itself.
     return different output on a later re-run. The findings are robust to this;
     the numbers are not. A reader who re-runs these commands and gets different
     counts has not found an error.
+
+19. **The 2023→2024 boundary refuses NATIONWIDE for a single-state cause. This is
+    deliberate, and it is a real cost.** This item exists because the refusal is
+    right and its price was previously unstated, and an unpriced cost is one a
+    user discovers by being blocked.
+
+    **The measurement.** Every 2023+2024 tract-level and county-level analysis, in
+    every state, refuses — on account of a county change confined to Connecticut.
+    Alaska is the clean illustration: the ground is identical on both sides and
+    the library refuses anyway.
+
+    ```
+    AK 2023 counties=30   AK 2024 counties=30   shared=30   -> UNCHANGED
+    AK 2023 tracts=170    AK 2024 tracts=170    shared=168  -> the SAME ground
+
+    lending_by_county: REFUSES -> "...spans more than one county_code basis"
+        30 of 30 county_code keys appear in every year present and would be
+        merged; they carry 99.8% / 99.9% of rows
+    ```
+
+    The message printed that evidence **against itself** and refused anyway,
+    leaving a user in Alaska to work out from a shared-key count whether their
+    analysis had ever been at risk.
+
+    **Scope, measured across all 51 jurisdictions and 20.7M LAR rows.** Exactly
+    **one** state's `county_code` **scheme** changes between 2023 and 2024:
+    Connecticut, 8 codes → 9, sharing zero members. Independently corroborated:
+    Connecticut is the **sole 2020s entry** on Census's *Substantial Changes to
+    Counties and County Equivalent Entities* list (87 FR 34235; §O item 1).
+
+    **A trap in that measurement, recorded because it nearly shipped as a false
+    claim.** Three states' county **sets** differ across the boundary, not one.
+    SD `46017` (Buffalo County) and TX `48269` (King County) — the sparsest county
+    in each state — carry a handful of rows every year 2018–2023, **zero in 2024**,
+    and rows again in 2025 (5 and 1). The codes never left the county universe;
+    nobody applied for a mortgage there in 2024. This is §M6.7's measured hazard
+    exactly — a set comparison reads a low-volume jurisdiction's empty year as a
+    boundary change — and it is why the shipped message says **scheme** and not
+    **set**. "No other state's `county_code` set changes between 2023 and 2024"
+    would have been a shipped claim a user could falsify in one query.
+
+    **Why the refusal stands.** A national key scheme did change. Deciding on a
+    user's behalf that their rows are unaffected is the silent inference this
+    library exists not to make, and the check that would license it — "does this
+    frame contain Connecticut?" — is a measured, per-frame test of exactly the
+    kind §M1.2b removed for producing five false positives and zero findings.
+
+    **What was done instead.** The refusal message now prices itself: it names the
+    boundary as Connecticut-confined, carries the citation, and gives two exact
+    paths — exclude Connecticut and re-run
+    (`df[df['state_code'] != 'CT']`), or split at the boundary into two panels
+    (§M5.2 option 1, the endorsed path, which keeps Connecticut in). Asserted by
+    `test_the_nationwide_county_refusal_prices_itself`, and the scope note is
+    keyed to its own boundary so a decennial-boundary refusal cannot claim
+    Connecticut's measurement.
+
+    **What state-scoping the county map would have cost, since it is the obvious
+    alternative and it is not free.** It would mean `COUNTY_CODE_BASIS_BY_YEAR`
+    becoming `{year: {state: basis}}`, and with it: a guard that must read
+    `state_code` (a column no guarded aggregation currently requires, and which
+    §M6.7 measures as carrying out-of-state strays in single-state pulls); a
+    per-state default for the 49 states with no entry, which is an argument from
+    absence promoted to a lookup value; and a rule whose verdict depends on which
+    rows a frame happens to contain rather than on which years it spans — so the
+    same two years would refuse or not depending on filtering, and a user could
+    turn the guard off by subsetting. The declarative rule's whole property is
+    that its verdict is a function of the years alone. That is worth more than the
+    over-refusal it costs, and the over-refusal is now visible and actionable
+    rather than merely suffered.
+
+20. **A fabricated *plausible* `activity_year` still defeats the guard — and two
+    ways of having NO usable year no longer do.** The guard derives every basis
+    from `activity_year` and has nothing else to check it against, so a frame
+    carrying `2023` on rows that are really 2024 is undetectable here. That much
+    was already stated (item 9) and is unchanged.
+
+    **What was NOT stated, and shipped in build 1, is that `_years_in` did not
+    see the column it was reading.** Two live bypasses, both closed in build 2,
+    both recorded because the second is worse than the first and was not in the
+    review that found the first:
+
+    - **Null years were dropped before parsing.** `_years_in` called `.dropna()`
+      first, so `NaN`-year rows were invisible to the guard and were pooled in
+      silently — while a non-numeric *string* in the same cell correctly became
+      UNMAPPED and blocked pooling. Two spellings of "this row has no usable
+      year", opposite safety outcomes.
+
+    - **A `float64` year column discarded every REAL year.** This is the one that
+      matters. A single blank `activity_year` cell is enough to make `read_csv`
+      hand back `float64`; every year then reads `2021.0`; `int("2021.0")` raises;
+      **every** year collapsed to `None`; the `None`s deduped to a single unmapped
+      year; and the guard let a **2021+2022 decennial-spanning frame** through as
+      a coherent single-year analysis. A silent wrong answer of exactly the class
+      this module exists to prevent, reached by one empty cell — and note that
+      fixing the null case *alone* would not have closed it, because it was the
+      real years being discarded, not the null.
+
+      The same `astype(str)` comparison broke `vintage=` narrowing on such a
+      frame: `'2021.0'` was offered where `'2021'` was wanted, nothing matched,
+      and a perfectly answerable narrowing raised the message reserved for a
+      malformed question.
+
+    Both are closed by one parser (`_parse_year`) that every year comparison in
+    the module now goes through, with the dtype matrix asserted
+    (`float64`/`Int64`/`object`/`int64`/`string` must all yield the same verdict).
+    **The general lesson is the one worth carrying:** a guard that reads a column
+    is only as good as its parse of that column, and the parse is a place a gate
+    can be vacuous without any test noticing — all 176 tests passed with both
+    bypasses live.
 
 ---
 
@@ -3388,16 +3672,54 @@ document claimed.
 
 **Release blockers for 0.6.0:**
 
-1. **The county map's full year→basis assignments still need a citation per
-   entry.** §M2.3 and §M6.6 establish *where* the county boundaries are (2021→2022
-   in Alaska; 2023→2024 in Connecticut) from LAR measurement. The MSA map is no
-   longer in this item — v3 gives it citations at both boundaries (CFPB *Summary of
-   2023 Data* for 2022; OMB Bulletin 23-01 for 2024, §M2.3). The county map needs
-   the equivalent: the Census county-equivalent change notices behind the Alaska
-   split and the Connecticut planning regions, with their FFIEC adoption years.
-   Until then the county map is the measurements restated, and it is now
-   **load-bearing for the tract guard** (§M2.1), which raises the cost of leaving
-   it that way.
+1. ~~**The county map's full year→basis assignments still need a citation per
+   entry.**~~ **CLOSED in build 2.** Both change records were located and read, and
+   both are now cited per entry in `COUNTY_CODE_BASIS_BY_YEAR`:
+
+   - **Alaska.** U.S. Census Bureau, *Substantial Changes to Counties and County
+     Equivalent Entities: 1970-Present*, 2010s list, retrieved 2026-08-05:
+     "Valdez-Cordova Census Area, Alaska (02-261): Split to form Chugach Census
+     Area (02-063) and Copper River Census Area (02-066) **effective January 02,
+     2019**."
+   - **Connecticut.** Census Bureau, *Change to County-Equivalents in the State of
+     Connecticut*, **87 FR 34235** (2022-06-06), FR Doc. **2022-12063**: "**By
+     2024**, all Census Bureau operations and publications, both internal and
+     external, will use the nine new county-equivalent boundaries, names, and
+     codes, except for 2020 Decennial Census data publications and other datasets
+     referencing the eight legacy counties as published before June 1, 2022." It is
+     the **sole 2020s entry** on Census's *Substantial Changes* list.
+
+   **The citations close the item. They also produce a negative result that is
+   worth more than the closure, and it must not be lost:**
+
+   > **Reg C plus a published change does NOT determine the LAR's key scheme.**
+   > Alaska's split is effective **2019-01-02**. REG_C_COMMENT — "the boundaries
+   > and codes in effect on January 1 of the calendar year covered by the
+   > register" — therefore predicts it appears in the **2020** LAR. Measured
+   > across full-state AK pulls, 2018–2025:
+   >
+   > ```
+   >   LAR year   02261    02063    02066
+   >    2018        168        0        0
+   >    2019        223        0        0
+   >    2020        311        0        0
+   >    2021        323        0        0      <- Reg C predicts the split by now
+   >    2022          0      158       40      <- the LAR actually adopts it here
+   >    2023          0       92       26
+   >    2024          0      119       35
+   >    2025          0      131       48
+   > ```
+   >
+   > **The LAR adopted it two years after the cited rule alone would put it.**
+   > What the LAR follows is the **FFIEC census file's vintage**, which lags the
+   > Census effective date by an amount neither the rule nor the change notice
+   > predicts.
+
+   So the *boundary locations* in the county map remain LAR measurement even now
+   that the changes are cited, and the entries say so rather than letting the
+   citation appear to cover the adoption year too. This is also the empirical
+   ground for §O item 10: it is the same reasoning the removed 2024 tract entry
+   rested on, falsified in the one case this package can check.
 
 **Downgraded from a release blocker by this revision:**
 
@@ -3465,6 +3787,66 @@ document claimed.
    so. This is a live, shipped, unrelated defect that the sentinel investigation
    surfaced (coverage item 17). It is out of scope for this document and should be
    filed separately.
+
+10. **The 2024 tract entry was REMOVED, and what a future one must be founded on.**
+   Build 1 shipped `TRACT_GEOID_BASIS_BY_YEAR[2024] = 2020`. Build 2 deletes it.
+   2024 is now UNKNOWN in the tract map, and §M1.3's rule applies uniformly to
+   2024 and 2025.
+
+   **Why it went.** The entry was uncited — the CFPB *Summary of ... Data* series
+   stops at 2023 — and rested instead on REG_C_COMMENT plus "the Census Bureau
+   published no new tract delineation between the 2020 Census delineations and
+   2024-01-01, so the boundaries in effect on January 1 of 2024 are the 2020
+   ones." **That premise is wrong at the granularity HMDA actually keys on.** It
+   argues continuity of the 2020 decennial *delineation*, which is true and is not
+   the question. HMDA tract codes follow the **FFIEC census file**, which adopts a
+   Census **geography vintage per year** — the 2024 file uses 2023 geographies. A
+   year can keep the 2020 delineation and still change file vintage, and the tract
+   GEOID is what the file carries.
+
+   **And the entry's reasoning is falsified empirically, not only in principle.**
+   §O item 1 measures the Alaska county split adopted by the LAR **two years after**
+   the "in effect on January 1" rule would place it. "The change was published
+   before January 1, therefore the LAR uses it" is the exact inference the 2024
+   tract entry made, and it is measurably wrong in the one case this package can
+   check.
+
+   **The FFIEC question is OPEN and is what a future entry must be founded on.**
+   `ffiec.gov` returns HTTP 403 to every automated request (§O item 3), so the
+   FFIEC Census FAQ could not be read directly this session. Secondary sourcing is
+   not a citation and **must not become a map entry**. A human with a browser
+   should read the FFIEC census-file documentation for 2024, record which Census
+   geography vintage that file adopts, and add the entry with that as its
+   citation — not with a decennial-delineation argument, and not with a Reg C
+   argument.
+
+   **Removal costs nothing, measured.** Over every distinct year-pair in 2018–2025
+   (28 pairs), the map with the entry and the map without it accept **the same
+   seven pairs**, at both guarded keys — the removal changes no refusal decision
+   anywhere. It is asserted as a test
+   (`test_removing_the_2024_tract_entry_changed_no_refusal_decision`), so it fails
+   if it stops being true. In the **narrowing** path removal is a net **accept**:
+   `vintage=2020` on a 2022+2023+2024 frame used to select all three years and then
+   refuse on the county map, and now selects the two coherent years and answers.
+
+   **What removal costs that is not a refusal decision, stated because it is
+   real.** The tract guard's county-consult limb (§M1.2b, §M2.1) now has **no live
+   case**: with 2024 unmapped, no shipped year-pair has agreeing tract bases and
+   disagreeing county bases, so Connecticut 2023+2024 is caught by the UNKNOWN rule
+   instead — `CONSULTED_MAPS` is iterated for the unmapped-year check before the
+   basis comparison is reached. The limb is not dead code and must not be deleted:
+   it is the only thing that catches a county re-scheme at a year whose tract basis
+   is cited and unchanged, which is precisely what happens the moment someone adds
+   the 2024 entry back with a real citation. It is exercised by a test that restores
+   the entry for its duration
+   (`test_the_county_consult_still_catches_connecticut_if_2024_is_ever_cited`), and
+   that test is honest about being conditional rather than presenting itself as
+   coverage of a shipped path.
+
+   **What removal gains besides correctness.** UNKNOWN stops being machinery with
+   nothing to do. Before build 2 it had exactly one instance (2025); it now has two
+   in the tract map, and the inconsistency the audit found — 2024 cited-by-argument
+   while 2025 was UNKNOWN on the same evidence — disappears.
 
 **Closed by this revision:**
 
