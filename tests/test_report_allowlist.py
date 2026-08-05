@@ -67,14 +67,37 @@ def test_a_refusal_propagates_out_of_the_report_instead_of_being_rendered(
 def test_the_refusal_is_not_typeset_into_a_table_cell(monkeypatch, sample_df):
     """The negative half: assert the OLD behaviour is gone, not just that the
     new one happens. Without this, a report that both raised and rendered would
-    pass the test above."""
+    pass the test above.
+
+    The assertion used to sit INSIDE ``pytest.raises``, on the line after the
+    call that raises — so it never executed, and the docstring claimed a
+    negative check the body did not perform. The check has to happen where a
+    rendered report could actually exist: in the ``except`` branch, on whatever
+    the function managed to produce before it raised, and on the exception's own
+    text.
+    """
     def boom(*a, **k):
         raise GeographyVintageError("MARKER-frame-spans-two-bases")
 
     monkeypatch.setattr(generator, "denial_rate_by_race", boom)
-    with pytest.raises(GeographyVintageError):
+
+    report = None
+    try:
         report = generate_disparity_report(sample_df)
-        assert "MARKER" not in report      # unreachable; here to state the intent
+    except GeographyVintageError as exc:
+        # The refusal must arrive as an exception carrying its own text...
+        assert "MARKER-frame-spans-two-bases" in str(exc)
+    else:
+        pytest.fail(
+            "generate_disparity_report returned a report instead of "
+            "propagating the refusal. Rendered:\n" + str(report)[:2000]
+        )
+    # ...and NOT as a returned document with the refusal typeset into it.
+    assert report is None, (
+        "a report object survived the refusal; if it is ever returned, a cell "
+        "reading 'Error: ...' reads as a rendering glitch while every "
+        "surrounding section still carries numbers"
+    )
 
 
 def test_summary_table_no_longer_swallows_everything(monkeypatch, sample_df):

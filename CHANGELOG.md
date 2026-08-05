@@ -2,6 +2,81 @@
 
 ## [Unreleased]
 
+### Added — the census-geography vintage rule
+
+- **`hmdaanalyzer.geography_vintage`** — three declarative, individually cited
+  `data year -> geography-key basis year` maps (`TRACT_GEOID_BASIS_BY_YEAR`,
+  `COUNTY_CODE_BASIS_BY_YEAR`, `MSA_CODE_BASIS_BY_YEAR`) and one guard helper,
+  `resolve_geography_vintage`, called from every geography-keyed aggregation.
+  The full decision record is `hmdaanalyzer/methodology/tract_vintage_methodology.md`.
+- **`GeographyVintageError`**, **`UnreachableFlagError`**, **`ReferenceGroupError`**
+  — new typed refusals, all exported from the package root.
+- **`vintage=` narrowing** on `lending_by_tract`, `lending_by_county`,
+  `lending_desert_score`, `racial_composition_by_tract` and `lender_summary`.
+  It selects the rows whose data year uses that basis; it never merges two
+  delineations. A narrowing that selects no rows **raises** rather than returning
+  an empty result.
+- **Provenance columns on aggregation output.** A tract aggregation carries
+  `tract_geoid_vintage` and `county_code_vintage` — both maps govern it — each
+  with a `<column>_status` companion taking `CITED` / `UNKNOWN` /
+  `NO_YEAR_COLUMN`. `lender_summary` carries the same facts as dict keys.
+  `_clean` derives `tract_geoid_vintage` on loaded frames.
+
+### Changed — BREAKING
+
+- **Aggregations that pool data years whose geography keys do not mean the same
+  thing now RAISE `GeographyVintageError` instead of returning a number.** This
+  affects `lending_by_tract`, `lending_by_county`, `lending_desert_score`,
+  `racial_composition_by_tract` and `lender_summary`. Code that concatenated
+  years across a basis boundary and aggregated received a plausible, wrong
+  result with no signal; it now receives a refusal naming the boundary, what
+  would have merged, and four documented ways forward. **A single unmapped year
+  on its own is not refused** — a 2025-only analysis works.
+- **`lending_desert_score` raises `UnreachableFlagError`** below
+  `DESERT_TRACT_FLOOR` tracts, where `is_lending_desert` is arithmetically
+  unreachable and every tract would be returned `False` whatever the data says.
+  The floor is derived at import from `DESERT_PERCENTILE_THRESHOLD`.
+- **The report layer no longer swallows refusals.** Five `except` sites in
+  `report/generator.py` are inverted onto a named `RENDERABLE_ERRORS` allowlist,
+  so a refusal propagates instead of being typeset into a markdown table cell.
+- **`disparity_ratio`** raises `ReferenceGroupError` (a `ValueError` subclass,
+  so existing `except ValueError` callers are unaffected) where it raised a bare
+  `ValueError`.
+- **`EXPECTED_LAR_COLUMNS` is now the union of `RAW_LAR_COLUMNS` and
+  `DERIVED_LAR_COLUMNS`.** The schema guard compares against the raw CFPB set
+  only, so it detects *CFPB* drift rather than ours. The public name is
+  unchanged and still importable.
+- **`lending_by_state` is deliberately NOT guarded**, on a stated argument from
+  absence (methodology coverage item 3).
+
+### Fixed — build 2, from the hostile audit
+
+- `DESERT_TRACT_FLOOR` is **derived** from `DESERT_PERCENTILE_THRESHOLD` at
+  import instead of being a second hand-written constant. Moving the threshold
+  previously left the floor arithmetically wrong with the whole suite green,
+  fabricating `is_lending_desert=False` for every tract in frames of 5–10 tracts.
+- A **null `activity_year`** no longer bypasses the guard, and neither does a
+  **`float64` year column** — one blank cell flipped the dtype, `int("2021.0")`
+  raised, every year collapsed to unmapped, and a decennial-spanning frame passed
+  the guard silently. `vintage=` narrowing on such a frame is answerable again.
+- The **uncited 2024 tract entry is removed**; 2024 is UNKNOWN in the tract map.
+  It changes no refusal decision over any year-pair in 2018–2025.
+- The refusal message **names constants that exist** (it built
+  `CENSUS_TRACT_BASIS_BY_YEAR`, which never existed) and no longer sends the
+  reader solely to a CFPB publication series that stops at 2023.
+- The 2023→2024 refusal, which fires nationwide for a Connecticut-confined
+  cause, now **says so and gives two exact ways through**.
+- `§M6.5`'s harm claim is restated with **one denominator** — 1,695 of 1,742
+  tract-years, not 845 of 871. The old phrasing understated the measured harm.
+- Both county-boundary change records are now **cited per entry** (87 FR 34235 /
+  FR Doc. 2022-12063 for Connecticut; Census *Substantial Changes* for Alaska),
+  closing the methodology's last release blocker.
+
+### Documentation
+
+- `CONTRIBUTING.md` states the supported Python range as **3.11–3.14**, matching
+  `requires-python` and both CI matrices (it said 3.9–3.12 in two places).
+
 ## [0.5.0] - 2026-07-06
 
 ### Added

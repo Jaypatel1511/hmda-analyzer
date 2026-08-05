@@ -16,7 +16,7 @@ enforces step 3 automatically and will refuse to publish if the invariant is vio
 ### Step-by-step
 
 **1. Implement changes on a feature branch; merge to `main` via pull request.**
-- All `main` pushes and PRs run `test.yml` (pytest, Python 3.9–3.12)
+- All `main` pushes and PRs run `test.yml` (pytest, Python 3.11–3.14)
 - Do not push version bumps directly to `main` — include them in the PR
 
 **2. Bump the version.**
@@ -72,7 +72,7 @@ The release workflow:
 1. **verify-version** — fails immediately if tag ≠ pyproject.toml version
 2. **build** — `python -m build` from the tagged commit; uploads wheel as artifact
 3. **test-wheel** — installs the wheel (not editable source) into a fresh venv on each
-   of Python 3.9, 3.10, 3.11, 3.12; asserts `hmdaanalyzer.__file__` resolves to
+   of Python 3.11, 3.12, 3.13, 3.14; asserts `hmdaanalyzer.__file__` resolves to
    site-packages (not the source tree); runs `pytest -m "not live"` against the installed
    package; fails the release if any test fails on any Python version
 4. **publish** — publishes to PyPI via OIDC trusted publishing only after steps 1–3 all pass

@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from hmdaanalyzer.exceptions import MissingColumnError, UnreachableFlagError
 from hmdaanalyzer.geography_vintage import (
-    DESERT_TRACT_FLOOR, resolve_geography_vintage,
+    DESERT_PERCENTILE_THRESHOLD, DESERT_TRACT_FLOOR, resolve_geography_vintage,
 )
 
 
@@ -142,21 +142,30 @@ def lending_desert_score(df: pd.DataFrame, vintage: int = None) -> pd.DataFrame:
             that collide: ``app_percentile`` is a percentile over the *collapsed*
             tract set, so pooling alters the reference distribution every tract
             is scored against. Measured on Connecticut 2023+2024, where NO tract
-            collides at all (intersection 0 of 872), 845 of 871 tracts still get
-            a wrong percentile and 25 get a wrong ``is_lending_desert`` verdict —
-            while the aggregate desert count moves only 384 → 381, so nothing in
-            the output looks anomalous enough to prompt a second look (§M6.1,
-            §M6.5).
-        UnreachableFlagError: if fewer than ``DESERT_TRACT_FLOOR`` (5) tracts
-            remain, where the flag is arithmetically unreachable (§M3.3a).
+            collides at all (intersection 0 of 872), **1,695 of 1,742 tract-years
+            get a wrong percentile and 25 get a wrong ``is_lending_desert``
+            verdict** — while the aggregate desert count moves only 384 → 381, so
+            nothing in the output looks anomalous enough to prompt a second look
+            (§M6.1, §M6.5).
+
+            One denominator, deliberately. This sentence used to read "845 of 871
+            … and 25 …", which is the 2023 half's numerator against the 2023
+            half's denominator, followed by the flip count for BOTH halves. It
+            understated the harm by half. Per half the figures are 845 of 871
+            (2023) and 850 of 871 (2024), and 11 and 14 flips.
+        UnreachableFlagError: if fewer than ``DESERT_TRACT_FLOOR`` tracts remain,
+            where the flag is arithmetically unreachable. The floor is derived at
+            import from ``DESERT_PERCENTILE_THRESHOLD`` — the same constant this
+            function compares ``app_percentile`` against — so the two cannot
+            drift apart (§M3.3a).
     """
     tract_df = lending_by_tract(
         df, vintage=vintage, _refusing_as="lending_desert_score"
     )
 
-    # The flag's floor is five tracts, derived from the threshold rather than
-    # from intuition: min(app_percentile) is 100/n and the flag needs < 25, so it
-    # is unreachable for n <= 4 whatever the data says. Returning
+    # The flag's floor is derived from the threshold rather than from intuition:
+    # min(app_percentile) is 100/n and the flag needs < DESERT_PERCENTILE_THRESHOLD,
+    # so it is unreachable below the floor whatever the data says. Returning
     # is_lending_desert=False for every tract there is a FABRICATED NEGATIVE, and
     # a fabricated negative is precisely what exceptions.py exists to prevent —
     # an empty or vacuous result must never silently read as "no disparity" in a
@@ -172,15 +181,16 @@ def lending_desert_score(df: pd.DataFrame, vintage: int = None) -> pd.DataFrame:
         raise UnreachableFlagError(
             f"lending_desert_score refused: {n_tracts} tract(s) in this frame, "
             f"below the floor of {DESERT_TRACT_FLOOR}.\n"
-            f"  is_lending_desert requires app_percentile < 25, and {floor_math}. "
+            f"  is_lending_desert requires app_percentile < "
+            f"{DESERT_PERCENTILE_THRESHOLD}, and {floor_math}. "
             f"The flag is ARITHMETICALLY UNREACHABLE here, so every tract would be "
             f"returned as is_lending_desert=False whatever the data says — a "
             f"fabricated negative, not a finding that the tracts were examined and "
             f"cleared.\n"
-            f"  This is neither a small-N suppression rule nor a claim that five "
-            f"tracts is statistically adequate; it is only the point below which a "
-            f"positive is impossible. Use lending_by_tract() for the underlying "
-            f"counts. (methodology §M3.3a)"
+            f"  This is neither a small-N suppression rule nor a claim that "
+            f"{DESERT_TRACT_FLOOR} tracts is statistically adequate; it is only "
+            f"the point below which a positive is impossible. Use "
+            f"lending_by_tract() for the underlying counts. (methodology §M3.3a)"
         )
 
     # Percentile rank by application volume
@@ -195,8 +205,12 @@ def lending_desert_score(df: pd.DataFrame, vintage: int = None) -> pd.DataFrame:
         tract_df["denial_rate"] * 100 * 0.4
     ).round(1)
 
+    # The threshold is imported, not written here. It is the number
+    # DESERT_TRACT_FLOOR is derived from, and when it was a literal at this line
+    # the two could — and in a demonstrated injection did — drift apart while
+    # every test stayed green (§M3.3a).
     tract_df["is_lending_desert"] = (
-        (tract_df["app_percentile"] < 25) &
+        (tract_df["app_percentile"] < DESERT_PERCENTILE_THRESHOLD) &
         (tract_df["denial_rate"] > 0.15)
     )
 
