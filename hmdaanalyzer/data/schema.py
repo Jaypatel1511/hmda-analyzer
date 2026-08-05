@@ -118,15 +118,19 @@ LAR_FIELDS = [
 # current calendar year, and any not-yet-served year fails loud at the API.
 EARLIEST_HMDA_YEAR = 2018
 
-# Canonical column set that ``load_from_api`` returns (after ``_clean``) for a
-# valid 2018+ query. Empirically verified IDENTICAL across 2018–2025 (same 99 raw
-# API columns each year), plus the two derived booleans ``_clean`` adds
-# (``is_approved``/``is_denied``). ``load_range`` validates every fetched year's
-# frame against this set and RAISES on any missing or unexpected column — the
-# load-bearing regression guard against a silent CFPB schema change. If the CFPB
-# schema legitimately drifts in a future year, this frozenset (not silent NaNs)
-# is the single place that must be updated, with the drift documented.
-EXPECTED_LAR_COLUMNS = frozenset({
+# The RAW CFPB column set — what the Data Browser actually serves, and the only
+# thing the schema guard is for. Empirically verified IDENTICAL across 2018–2025
+# (same 99 columns, same names, every year).
+#
+# This set is deliberately SEPARATE from the columns ``_clean`` derives. The
+# guard's documented job is to detect *CFPB* schema drift; validating our own
+# derived names against it makes a drift detector that is increasingly about us,
+# and — the reason this split exists — it is a total failure on the first call,
+# not an edge case. ``_validate_lar_schema`` uses strict two-way set equality, so
+# adding ANY derived column to ``_clean``'s output made EVERY ``load_range`` call
+# raise ``SchemaValidationError: unexpected=[...]`` on the first year it fetched.
+# Verified by executing it before the split. Methodology §M4.4, option 3.
+RAW_LAR_COLUMNS = frozenset({
     # provenance + geography
     "activity_year", "lei", "derived_msa_md", "state_code", "county_code",
     "census_tract", "conforming_loan_limit",
@@ -169,9 +173,28 @@ EXPECTED_LAR_COLUMNS = frozenset({
     "ffiec_msa_md_median_family_income", "tract_to_msa_income_percentage",
     "tract_owner_occupied_units", "tract_one_to_four_family_homes",
     "tract_median_age_of_housing_units",
-    # derived booleans added by _clean()
-    "is_approved", "is_denied",
 })
+
+# Columns ``_clean`` DERIVES and adds. Not CFPB's, so not the guard's business.
+# ``_validate_lar_schema`` subtracts this set before comparing, which is what
+# makes adding a future derived column a non-event instead of a release-breaking
+# one.
+DERIVED_LAR_COLUMNS = frozenset({
+    # booleans derived from action_taken
+    "is_approved", "is_denied",
+    # census-tract GEOID delineation basis, derived from activity_year via
+    # hmdaanalyzer.geography_vintage.TRACT_GEOID_BASIS_BY_YEAR. PROVENANCE ONLY —
+    # every guard derives the basis from ``activity_year``, never from this
+    # column, because ``.agg()`` drops it, ``pd.concat`` with a frame lacking it
+    # yields silent NaN and flips int64→float64, and the function most in need
+    # of the guard (``lending_by_tract``) is an ``.agg()``. Methodology §M4.1.
+    "tract_geoid_vintage",
+})
+
+# Backwards-compatible union: the full set a cleaned ``load_from_api`` frame
+# carries. Kept as a public name because callers and tests import it. The guard
+# no longer compares against this directly — see ``_validate_lar_schema``.
+EXPECTED_LAR_COLUMNS = RAW_LAR_COLUMNS | DERIVED_LAR_COLUMNS
 
 # ── Cache Directory ───────────────────────────────────────────────────────────
 import os

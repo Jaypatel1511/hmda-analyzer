@@ -5,7 +5,7 @@ Computes disparate impact ratios between racial/ethnic groups.
 import pandas as pd
 import numpy as np
 from hmdaanalyzer.data.schema import DISPARITY_THRESHOLDS, REFERENCE_RACE
-from hmdaanalyzer.exceptions import MissingColumnError
+from hmdaanalyzer.exceptions import MissingColumnError, ReferenceGroupError
 
 
 def denial_rate_by_race(df: pd.DataFrame) -> pd.DataFrame:
@@ -58,7 +58,10 @@ def disparity_ratio(df: pd.DataFrame, reference: str = None) -> pd.DataFrame:
 
     ref_row = denial_rates[denial_rates["derived_race"] == reference]
     if ref_row.empty:
-        raise ValueError(f"Reference group '{reference}' not found in data.")
+        # Typed (a ValueError subclass, so existing callers are unaffected) so
+        # the report layer can name the one disparity failure it may render
+        # without also swallowing a vintage refusal (§M3.2a).
+        raise ReferenceGroupError(f"Reference group '{reference}' not found in data.")
 
     ref_rate = ref_row["denial_rate"].iloc[0]
 

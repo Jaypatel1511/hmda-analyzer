@@ -15,6 +15,10 @@ from hmdaanalyzer.data.schema import (
     APPROVED_ACTIONS, DENIED_ACTIONS,
     RACE_CODES, ETHNICITY_CODES, LOAN_PURPOSE, LOAN_TYPE,
     EARLIEST_HMDA_YEAR, EXPECTED_LAR_COLUMNS,
+    RAW_LAR_COLUMNS, DERIVED_LAR_COLUMNS,
+)
+from hmdaanalyzer.geography_vintage import (
+    TRACT_GEOID_BASIS_BY_YEAR, VINTAGE_COLUMN,
 )
 
 
@@ -132,16 +136,23 @@ def _validate_year_range(start_year, end_year):
 def _validate_lar_schema(df: pd.DataFrame, year: int):
     """Raise :class:`SchemaValidationError` if ``df`` deviates from the canonical
     CFPB LAR column set for a 2018+ query. Names the year and the offending
-    columns. This is the regression guard against a silent CFPB schema change."""
-    actual = set(df.columns)
-    missing = EXPECTED_LAR_COLUMNS - actual
-    unexpected = actual - EXPECTED_LAR_COLUMNS
+    columns. This is the regression guard against a silent CFPB schema change.
+
+    Columns this package DERIVES in :func:`_clean` are subtracted before the
+    comparison, so the guard means what its comment claims: it detects *CFPB*
+    drift, not ours. Before this split the comparison was strict two-way set
+    equality against a set containing our derived names, which made adding any
+    new derived column a total failure on the first fetched year (§M4.4).
+    """
+    actual = set(df.columns) - DERIVED_LAR_COLUMNS
+    missing = RAW_LAR_COLUMNS - actual
+    unexpected = actual - RAW_LAR_COLUMNS
     if missing or unexpected:
         raise SchemaValidationError(
             f"HMDA year {year} returned an unexpected column schema. "
             f"missing={sorted(missing)}; unexpected={sorted(unexpected)}. "
             f"The CFPB Data Browser schema may have changed; "
-            f"update EXPECTED_LAR_COLUMNS (with the drift documented) before trusting this load."
+            f"update RAW_LAR_COLUMNS (with the drift documented) before trusting this load."
         )
 
 
@@ -376,6 +387,23 @@ def _clean(df: pd.DataFrame) -> pd.DataFrame:
     if "action_taken" in df.columns:
         df["is_approved"] = df["action_taken"].isin(APPROVED_ACTIONS)
         df["is_denied"] = df["action_taken"].isin(DENIED_ACTIONS)
+
+    # Census-tract GEOID delineation basis, as PROVENANCE. Derived from
+    # activity_year so a human — and a downstream consumer — can *see* which
+    # delineation a row's census_tract is drawn against. It is never the
+    # mechanism: every guard re-derives the basis from activity_year, because
+    # .agg() drops this column, pd.concat with a frame lacking it yields silent
+    # NaN, and that concat also flips the dtype int64 -> float64 (§M4.1).
+    #
+    # An unmapped year (2025 today) gets NaN, which is what makes the dtype
+    # float64 for such a frame. That is the documented, accepted behaviour: no
+    # dtype available here survives a null as an integer, so it is a property of
+    # the operation rather than a defect of the plain-int choice (§M4.2). It is
+    # also the honest output — no basis is asserted for a year no human has cited.
+    if "activity_year" in df.columns:
+        df[VINTAGE_COLUMN] = pd.to_numeric(
+            df["activity_year"], errors="coerce"
+        ).map(TRACT_GEOID_BASIS_BY_YEAR)
 
     if "derived_race" not in df.columns and "applicant_race_1" in df.columns:
         df["derived_race"] = df["applicant_race_1"].map(

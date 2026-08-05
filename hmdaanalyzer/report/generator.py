@@ -1,8 +1,39 @@
 """
 Generate HMDA analysis reports.
+
+**On the ``except`` clauses below — the allowlist is inverted, deliberately.**
+
+Every ``try`` in this module used to catch ``except Exception`` with a re-raise
+allowlist naming ``MissingColumnError`` only (and ``summary_table`` named
+nothing at all). That shape swallows every exception type added *after* it was
+written, and renders the failure into a markdown table cell — a report that looks
+complete with a refusal typeset into it, which is strictly worse than the warning
+the methodology rejects: a cell reading "Error: ..." looks like a rendering
+glitch rather than a refusal, and every surrounding section still carries
+numbers.
+
+So these blocks now name the **narrow, expected** failures they can actually
+render, and let everything else propagate. A report that fails to generate is a
+correct outcome; a report that renders a refusal as a table cell is not.
+``GeographyVintageError`` is the exception that motivated the inversion, but it
+is deliberately NOT what the blocks are keyed on — enumerating types to re-raise
+is the pattern that created the problem (methodology §M3.2a).
+
+**What is and is not enforced.** The AST site-list test in
+``tests/test_geography_vintage_sites.py`` walks ``hmdaanalyzer/**/*.py``, but it
+enumerates *geography-keyed aggregation sites* and this module has none, so its
+expected set is silent about this file. **Nothing gates the exception
+allowlist.** A sixth ``except Exception`` added here tomorrow would swallow the
+refusal and no test would fail. The inversion fails safe — a new swallowing site
+has to be written deliberately rather than inherited by default — but it is a
+convention, not a gate, and it is not the same thing as the site-list
+enforcement the aggregation sites get.
 """
 import pandas as pd
-from hmdaanalyzer.exceptions import MissingColumnError, _require_columns
+from hmdaanalyzer.exceptions import (
+    MissingColumnError, ReferenceGroupError, _require_columns,
+)
+
 from hmdaanalyzer.analysis.disparity import (
     denial_rate_by_race, disparity_ratio, denial_rate_by_income_band
 )
@@ -10,6 +41,15 @@ from hmdaanalyzer.analysis.geographic import (
     lending_by_state, lending_by_county, lending_desert_score
 )
 from hmdaanalyzer.analysis.lender import lender_summary, lender_vs_market
+
+#: The failures a report section can meaningfully render into a table cell: the
+#: frame is well-formed but this particular section has nothing coherent to say
+#: about it. ``ValueError`` is deliberately absent — it is the base class of
+#: ``MissingColumnError``, ``SchemaValidationError``, ``GeographyVintageError``
+#: and ``UnreachableFlagError``, so catching it would restore exactly the
+#: swallowing this inversion removes.
+RENDERABLE_ERRORS = (KeyError, IndexError, ZeroDivisionError, TypeError,
+                     ArithmeticError, AttributeError, ReferenceGroupError)
 
 
 def generate_disparity_report(
@@ -92,9 +132,7 @@ def generate_disparity_report(
                 f"| {row['derived_race']} | {row['applications']:,} | "
                 f"{int(row['denials']):,} | {row['denial_rate']*100:.1f}% |"
             )
-    except MissingColumnError:
-        raise
-    except Exception as e:
+    except RENDERABLE_ERRORS as e:
         lines.append(f"| Error computing denial rates: {e} |")
 
     lines += [
@@ -130,9 +168,7 @@ def generate_disparity_report(
                 f"{row['reference_denial_rate']*100:.1f}% | "
                 f"{ratio} | {level_emoji} |"
             )
-    except MissingColumnError:
-        raise
-    except Exception as e:
+    except RENDERABLE_ERRORS as e:
         lines.append(f"| Error: {e} |")
 
     lines += [
@@ -152,9 +188,7 @@ def generate_disparity_report(
                 f"| {row['income_band']} | {row['applications']:,} | "
                 f"{row['denial_rate']*100:.1f}% |"
             )
-    except MissingColumnError:
-        raise
-    except Exception as e:
+    except RENDERABLE_ERRORS as e:
         lines.append(f"| Error: {e} |")
 
     lines += [
@@ -177,9 +211,7 @@ def generate_disparity_report(
                         f"{row['disparity_ratio']:.1f}x denial rate vs White applicants"
                     )
             lines.append("")
-    except MissingColumnError:
-        raise
-    except Exception:
+    except RENDERABLE_ERRORS:
         pass
 
     return "\n".join(lines)
@@ -189,5 +221,10 @@ def summary_table(df: pd.DataFrame) -> pd.DataFrame:
     """Return denial rates and disparity ratios as a DataFrame."""
     try:
         return disparity_ratio(df)
-    except Exception:
+    except RENDERABLE_ERRORS:
+        # The fifth swallowing site, and it was the worst: it had NO re-raise
+        # allowlist at all, so it swallowed everything the rest of the module was
+        # careful to re-raise and silently substituted a different analysis.
+        # ReferenceGroupError -- no baseline group to divide by -- is the case
+        # this fallback was written for and the only one it now covers (§M3.2a).
         return denial_rate_by_race(df)
