@@ -1,29 +1,32 @@
 # Census-tract vintage in multi-year HMDA frames — methodology
 
-> **Status: v2, POST-AUDIT, PRE-BUILD.** Methodology-first artifact. No code
+> **Status: v3, POST-RE-AUDIT, PRE-BUILD.** Methodology-first artifact. No code
 > exists for this feature and none should be written until this document has had
-> a scoped re-audit of the sections changed in this revision.
+> a targeted verification of the redesigned check in §M1.2a.
 >
-> **v1 was hostile-audited and the verdict was *revise, then build*.** The core
-> design survives: the audit independently reproduced the geometry to the tract on
-> three counties, re-derived the site inventory by AST sweep, and confirmed the
-> binding, the no-crosswalk argument, the raise-over-warn argument and the
-> unknown-year raise. This revision changes what gets built in three places
-> (§M1.2a, §M2.1, §M2.4) and repairs evidence in several more.
+> **v1 was hostile-audited; v2 was re-audited on the sections v1's audit changed.**
+> The core design has now survived three independent passes: the declarative
+> year→basis binding, the six-site inventory (three separate AST sweeps agree), the
+> no-crosswalk argument, raise-over-warn, the unknown-year raise as a principle, the
+> Jaccard anti-correlation result, the Connecticut `lending_desert_score` numbers,
+> the packaging finding and the five-tract desert floor are all settled and are not
+> reopened here.
 >
-> **What changed in v2, in one list:** the Connecticut "loud failure" claim is
-> struck as false and the design gains a measured key-disjointness limb alongside
-> the declarative map (§M1.2a, §M6.5); county and MSA basis maps join the tract
-> one and two county guard sites are added (§M1.2, §M2.1, §M2.3, §M6.6); the
-> "materially different ground" phrasing is retired and the recarve rule gains an
-> `AREALAND_PART > 0` filter (§M3.1); the pandas evidence is re-run across three
-> versions and two of three v1 results are replaced (§M4.1); §M1.1's "prospective"
-> claim is struck as contradicting §M1.3 (§M1.1); the narrowing parameter's three
-> undefined cases are decided (§M3.3a); the guard becomes one helper with a test
-> that enforces the site list (§M2.4) and the report layer's swallowing is
-> addressed (§M3.2a); the document moves in-package so it ships (correction 7);
-> and the coverage section is rewritten around the pattern that produced its own
-> holes.
+> **What changed in v3, in one list:** the `NA` sentinel is documented as a valid
+> reported value present in every state-year measured, four key-set figures
+> contaminated by its silent removal are corrected, and every key-set measurement in
+> the document now states its sentinel handling (§M1.2a, §M2.3, §M6.5, §M6.7); the
+> measured limb is **redesigned from frame scope to county scope** and the
+> declarative limb is extended to consult the county basis map, which is what
+> actually catches Connecticut (§M1.2a); §M1.3 gains an **`UNKNOWN` third map state**
+> that resolves a live contradiction with §M2.2 and unblocks the 2025 release
+> (§M1.3, §M2.2); the MSA map's boundary moves to **2022 on a citation** rather than
+> 2024 on a measurement, and the stray-row mechanism is corrected to intra-record
+> geography disagreement (§M2.3, §M6.6); the `attrs` evidence is replaced with a
+> full four-configuration matrix showing `.merge()` and `pd.concat` obey **one**
+> rule (§M3.3); and four mechanical defects are repaired, including two stale `O-2`
+> references that had the document declaring an open release blocker closed (§M6.1,
+> coverage item 6, §M3.1, §M3.2a).
 >
 > **This document also revises the recon design it was commissioned to justify.**
 > Three of the recon's four proposals survive in altered form; one — "raise on a
@@ -33,8 +36,12 @@
 > §M6.4).
 >
 > Every empirical claim carries the command that produced it. v1's claims were run
-> 2026-08-03 and are in §V; v2's were run 2026-08-04 and are in §V-2 onward. Where
-> a v1 claim did not reproduce, the v1 row is struck rather than deleted.
+> 2026-08-03 and are in §V; v2's 2026-08-04 in §V-2; v3's 2026-08-04 in §V-3. Where
+> an earlier claim did not reproduce, the earlier row is struck rather than deleted.
+>
+> **Standing measurement rule, adopted in v3 and applying to every figure in this
+> document:** any statement about a set of geography keys must say whether the `NA`
+> sentinel was included, and must have been run both ways. §M1.2a explains why.
 
 ---
 
@@ -57,14 +64,19 @@ README's "86 tests" claim (`pytest` collects 114); and any change to
 `CI` with the filename `test.yml` unchanged; `docs-check` adoption rides this
 release.
 
-**What v2 adds to 0.6.0's payload**, since this revision expands it: a county
-basis map and an MSA basis map alongside the tract one; guards at
-`lending_by_county` and `lender_summary`'s `unique_counties`; a measured
-key-disjointness check; a single shared guard helper; an AST-based test that
-enforces the site list; a fix to the report layer's exception allowlist; a
-`README` sentence change; and this document's relocation into the package with a
+**What 0.6.0's payload is, as of v3:** a county basis map and an MSA basis map
+alongside the tract one, each with an `UNKNOWN` state for unmapped years; guards at
+`lending_by_county` and `lender_summary`'s `unique_counties`; a **per-county**
+key-disjointness check with a stated row floor; the tract guard consulting the
+**county** map as well as the tract map; a single shared guard helper; an AST-based
+test that enforces the site list; a fix to the report layer's exception allowlist;
+a `README` sentence change; and this document's relocation into the package with a
 packaging gate. None of that is implemented here — this remains a decision record,
 not a specification.
+
+**What v3 removed from that payload:** the frame-level disjointness check (replaced
+by the per-county one, §M1.2b) and the 2025-citation release blocker (dissolved by
+`UNKNOWN`, §M1.3).
 
 ---
 
@@ -232,8 +244,17 @@ door and leave the corridor open. All three have the same shape:
 TRACT_GEOID_BASIS_BY_YEAR  : {2018..2021 -> 2010, 2022..2025 -> 2020}
 COUNTY_CODE_BASIS_BY_YEAR  : {2018..2021 -> 2010, 2022, 2023 -> 2020,
                               2024, 2025 -> 2023}     # see §M2.3, §M6.7
-MSA_CODE_BASIS_BY_YEAR     : {2018 -> ..., ..., 2024, 2025 -> 2023}
+MSA_CODE_BASIS_BY_YEAR     : {2018..2021 -> 2010, 2022, 2023 -> 2020,
+                              2024, 2025 -> 2023}     # see §M2.3 — boundary at
+                                                      # 2022 is a CITATION, not a
+                                                      # measurement
 ```
+
+The MSA map's 2022 boundary comes from CFPB's *Summary of 2023 Data* ("OMB
+definitions released in 2020 that became effective for HMDA purposes in 2022") and
+its 2024 boundary from OMB Bulletin 23-01. **Neither is visible in the LAR**, which
+is exactly why §M2.3 sets them from citations. A fourth map state, `UNKNOWN`,
+applies to any year absent from any of the three (§M1.3).
 
 The basis-year *values* differ between the three maps because the three keys are
 redrawn by different authorities on different schedules — Census decennial
@@ -297,52 +318,367 @@ time any state restructures.
 | | what it detects | why the other cannot |
 |---|---|---|
 | **Declarative** year→basis maps (§M1.2) | **key REUSE** — the same string meaning different ground | Reuse is invisible to measurement *by construction*: the keys match, so no comparison of key sets can see it (§M6.4) |
-| **Measured** key-disjointness check | **key REPLACEMENT** — the ground surviving under a new string | Replacement is invisible to the map: the basis year is unchanged, so the map reports "safe" (§M6.5) |
+| **Measured** key-disjointness check | **key REPLACEMENT** — the ground surviving under a new string | Replacement is invisible to the map *when no map covers the key that moved* |
 
 The two failure modes are complements, and each instrument is blind to exactly
-the one the other catches. Shipping only the map lets Connecticut through;
-shipping only the measurement lets Baltimore city through (§M6.4: Jaccard 0.985,
-18% of rows on re-carved keys). Ship both.
+the one the other catches. Shipping only the measurement lets Baltimore city
+through (§M6.4: Jaccard 0.985, 18% of rows on re-carved keys). Ship both.
 
-**The measured limb, stated concretely.** For each pair of years in the frame,
-compare the sets of geography keys present. If the intersection is empty — or
-below a threshold that must be argued, not guessed — the keys have been replaced
-and the aggregation refuses, *regardless of what the basis map says*. On CT
-2023+2024 this is unambiguous:
+**Two corrections to how the v2 draft justified this split**, both from §M1.2b and
+both changing what the measured limb is *for*:
+
+- **Connecticut is not the measured limb's case.** The v2 draft said "shipping only
+  the map lets Connecticut through", and that is false once the tract guard consults
+  the **county** map — which it must, because the county code is the tract GEOID's
+  prefix. Measured, CT 2023→2024 produces **zero** disjoint-within counties, so the
+  measured limb contributes nothing there. Connecticut is a declarative catch.
+- **The measured limb's real job is narrower**: a key replacement inside a single
+  county at a year where *no* basis map changes. That case is not observed anywhere
+  in six states across 2018–2025 (coverage item 15). It ships as a residual net, not
+  as the answer to Connecticut.
+
+#### The `NA` sentinel, and why it matters more than a filter
+
+Before the measured limb can be specified at all, one fact about the data has to be
+established, because it silently invalidated the v2 draft's showcase for this very
+check.
+
+**`census_tract` and `county_code` carry the literal string `NA` as a valid
+reported value.** The 2025 FIG documents the field as `06037264000 (or) NA`. It is
+not rare and it is not confined to a few years — it is present in **every
+state-year measured**, 40 of 40 across six states and 2018–2025:
 
 ```
-$ .venv/bin/python r1_ct.py     # scratchpad, 2026-08-04
-  |2023 keys|=872  |2024 keys|=872  intersection=0  jaccard=0.000
+$ .venv/bin/python s1_sentinel.py    # scratchpad, 2026-08-04
+   file        rows     tracts  NA_tract  counties  NA_county
+   CT_2023  105,543        873     1,001         9        892
+   CT_2024  112,090        873     1,173        10      1,101
+   AK_2021   42,991        165        66        30         56
+   VA_2018  351,200      1,990     3,521       234      3,064
+   ... (all 40 state-years carry NA in both columns)
 ```
 
-Zero intersection over 872 keys on each side is not a threshold judgement; it is a
-disjoint partition. **Scope the check to the empty-intersection case in v1** and
-leave any softer threshold to a later release with its own evidence, because
-§M6.4 is a standing proof that intermediate Jaccard values do not mean what
-intuition says they mean.
+**`pandas.read_csv` coerces it to `NaN`, and the shipped loader does not disable
+that.** `loader.py:84` is `pd.read_csv(..., dtype=str, low_memory=False)`;
+`dtype=str` does *not* turn off NA detection, and `"NA"` is in pandas' default
+`na_values` list. So the string that leaves the CFPB is not the value that reaches
+an aggregation function. Measured live through the shipped public API:
 
-Two measured hazards that constrain how this check may be built, both found while
-verifying §M2.3 (§M6.7):
+```
+$ .venv/bin/python s4_ct_real.py     # scratchpad, 2026-08-04
+load_range(2023, 2024, state="CT", limit=500_000)  -> 217,633 rows
 
-- **Single-state pulls carry out-of-state keys.** A `states=VA` fetch for 2018
-  contains 233 distinct `county_code` values; for 2019, 145. The difference is
-  almost entirely out-of-state codes appearing and disappearing, not Virginia
-  changing. A disjointness check run on a raw key set will read that as
-  instability.
-- **Sparse keys drop out of a year entirely.** Alaska's `county_code` set scores
-  Jaccard 0.732 at 2018→2019 and 0.806 at 2019→2020 — years with **no boundary
-  change at all** — purely because low-volume boroughs had zero rows in one year.
+=== census_tract ===
+  dtype=str   NaN rows: 2023=1,001  2024=1,173
+  literal string 'NA' present anywhere: 0        <-- already coerced
+  set(unique())          -> |A|=873 |B|=873 INTERSECTION=1 -> empty-intersection check FIRES: False
+  set(dropna().unique()) -> |A|=872 |B|=872 INTERSECTION=0 -> FIRES: True
+  the shared member(s): ['nan']
+  nunique() 2023=872 2024=872      (nunique drops NaN)
+  groupby rows 2023=872 2024=872   (groupby drops NaN)
+```
 
-Both push the same way: the check must be **presence-robust**, and the
-empty-intersection scope above is what makes it so. Neither hazard can produce a
-zero intersection; both can produce a middling Jaccard. This is a second,
-independent reason not to threshold on Jaccard.
+**Because `NA` is present in every year, the key sets of any two LAR years are
+never disjoint.** The v2 draft's showcase for this check — "intersection=0 … not a
+threshold judgement; it is a disjoint partition" — holds only under an unstated
+`dropna`. Written the obvious way, the check does not fire on the one case the
+document introduced it for.
+
+**The document already contained its own refutation and nobody read it that way.**
+§M2.3 reports the CT county Jaccard as 0.056. With 9 codes in 2023 and 10 in 2024,
+0.056 is exactly 1/18 — which is arithmetic proof that the intersection is *not*
+empty. §M2.3 was quoting the sentinel-*included* figure while §M1.2a two pages
+earlier quoted the sentinel-*excluded* one, and the two numbers were describing the
+same comparison.
+
+**Two consequences for the build, and the second is the one that bites:**
+
+1. **The filter is `.dropna()`, not a string comparison.** By the time a frame
+   reaches an aggregation site the sentinel is already `NaN`. A guard written as
+   `df[df.census_tract != "NA"]` is a **no-op** — it matches nothing, because
+   nothing equals `"NA"` any more — and would silently reintroduce exactly this
+   defect while looking like the fix for it.
+2. **The current non-firing is reliable, but it rests on an object-identity
+   coincidence.** `nan != nan`, so a set intersection can only find it by identity.
+   pandas happens to reuse the `np.nan` singleton, so the intersection is reliably
+   `{nan}` — measured identical on 2.2.3 and 3.0.5, across separate `read_csv`
+   calls and across `pd.concat`, which is what `load_range` does. If that ever
+   stopped being true the same line of code would flip from a silent false negative
+   to a spurious false positive. Do not depend on it in either direction; filter
+   explicitly.
+
+**Corrections to four figures elsewhere in this document,** each of which was the
+sentinel-excluded number presented without saying so. Both readings are now given
+wherever the figure appears:
+
+| Where | Was | Sentinel **included** | Sentinel **excluded** |
+|---|---|---|---|
+| §M1.2a showcase — CT tract keys | 872 / 872, inter 0 | **873 / 873, inter 1** | 872 / 872, inter 0 |
+| §M6.7 — VA distinct `county_code`, 2018 | 233 | **234** | 233 |
+| §M6.7 — VA distinct `county_code`, 2019 | 145 | **146** | 145 |
+| §M6.7 — AK county Jaccard, 2018→2019 | 0.732 | **0.738** | 0.732 |
+| §M6.7 — AK county Jaccard, 2019→2020 | 0.806 | **0.811** | 0.806 |
+| §M6.7 — AK county Jaccard, 2021→2022 | 0.903 | **0.906** | 0.903 |
+
+The last row was **not** on the list of contaminated figures handed to this
+revision. It is the same contamination in the same table, on the one Alaska
+transition that is a real boundary rather than sparse-borough noise — found only by
+re-running the whole table both ways instead of the two rows that were named.
+
+**The transferable rule, because this is the fourth instance of one shape.**
+
+> **When a number comes back clean, ask what the tool dropped to make it clean.**
+
+An intersection of exactly zero, a Jaccard of exactly 0.000, a set of exactly 872 —
+these read as decisive. Each was decisive only because `read_csv` and `groupby`
+had already removed the rows that would have made it messy, silently and by
+default. The tool did not lie; it was never asked.
+
+This is the same move that found the other three: Connecticut was found by testing
+the prompt's stated assumption about county stability, Alaska by testing the v1
+draft's replacement claim about 2021→2022, the 2025 data year by asking what the
+API was serving that afternoon rather than what the document's year range said, and
+the sentinel by asking what `set(unique())` had quietly discarded. **In every case
+the finding was behind a premise that looked settled and had never been executed.**
+
+#### The measured limb — scope, and why the frame is the wrong one
+
+The v2 draft scoped this check to the whole frame: compare the two years' full key
+sets, refuse on an empty intersection. **That scope is wrong independently of the
+sentinel**, and Alaska proves it live in the LAR.
+
+```
+$ .venv/bin/python s5_percounty.py   # scratchpad, 2026-08-04; keys sentinel-filtered
+=== Alaska 2021->2022 ===
+  DISJOINT-WITHIN (both sides non-empty, intersection 0): 1
+      02105: |A|=1 |B|=1 inter=0
+  VANISHING (present in 2021, absent in 2022): 1   ['02261']
+  APPEARING (absent in 2021, present in 2022): 2   ['02063', '02066']
+  HELD (non-zero intersection): 27
+  STATEWIDE frame-level: |A|=164 |B|=172 inter=144 jaccard=0.750
+  -> frame-level empty-intersection check FIRES: False
+  -> per-county check FIRES: True (on 1 county)
+```
+
+`02261` is retired into `02063` + `02066` and `02105` re-schemes, while 27 counties
+hold. **A frame-level disjointness check is silent on all of it.** Connecticut is
+the degenerate case where the whole state moves at once; *partial* is the general
+shape, and the general shape is what a national frame will actually contain.
+
+The full specification is in §M1.2b.
+
+### M1.2b The redesigned check, specified end to end
+
+Two limbs. The declarative one does more work than the v2 draft gave it, and that
+change is what makes the measured one honest about its own reach.
+
+#### Limb 1 — declarative, extended: a tract guard consults *both* maps
+
+**Decision: a tract-keyed guard raises if the frame's years disagree on the tract
+basis *or* on the county basis.**
+
+The county code is the first five digits of the tract GEOID. A county-scheme change
+is therefore *necessarily* a tract-key change — it cannot be otherwise, because the
+prefix is part of the key. So the county basis map already knows everything needed
+to refuse Connecticut, and the v2 draft's only mistake was not wiring it into the
+tract guard.
+
+This matters more than it sounds, because of what the measurement actually shows:
+
+```
+$ .venv/bin/python s5_percounty.py   # CT 2023->2024, keys sentinel-filtered
+  DISJOINT-WITHIN (both sides non-empty, intersection 0): 0
+  VANISHING  (present 2023, absent 2024): 8   ['09001' ... '09015']
+  APPEARING  (absent 2023, present 2024): 9   ['09110' ... '09190']
+  HELD: 0
+  -> per-county disjointness check FIRES: False (on 0 counties)
+```
+
+**Connecticut produces zero disjoint-within counties.** Every old county vanishes
+and every new one appears; not one county exists on both sides of the boundary, so
+there is nothing for a per-county *intersection* test to compare. The revision brief
+for this pass assumed CT would land as "disjoint-within or vanishing" and suggested
+the vanishing case "may already be owned by the county basis map." It is owned by
+that map — but only if the **tract** guard is specified to consult it, and §M2.1's
+table currently says `lending_by_tract` is guarded by "tract map + disjointness".
+
+**So a naive reading of the redesign — replace the frame-level check with a
+per-county one — silently un-guards Connecticut for every tract-keyed operation.**
+The tract map says 2023 and 2024 are both basis 2020, and the per-county check finds
+nothing to compare. That is the single most important consequence of this pass and
+it is why Limb 1 is stated before Limb 2.
+
+Extending Limb 1 also makes the vanishing-county case a *declarative* question
+rather than a measured one, which is what keeps it from firing on frames that are
+merely unusual. A hand-concatenated frame of Virginia-2022 counties and Ohio-2023
+counties has every county vanishing and every county appearing — and must not
+raise, because 2022 and 2023 share both bases and the analysis is coherent. Limb 1
+distinguishes the two cases on a citation instead of on a shape.
+
+#### Limb 2 — measured: per-county disjointness
+
+**Decision: scope the check per county, not per frame.** Fully specified:
+
+1. **Keys are sentinel-filtered before comparison, on both columns.** The filter is
+   `.dropna()` on `census_tract` and on `county_code` — *not* a comparison against
+   the string `"NA"`, which is a no-op on a loaded frame (§M1.2a). Rows where either
+   key is null are excluded from the comparison entirely; they are not a county and
+   they are not a tract.
+2. **Counties are grouped by `county_code`, not by the tract GEOID's prefix.** The
+   two disagree in real data — 3 rows in CT 2020, 7 in VA 2020 (§M6.6) — and
+   `county_code` is the column the county guard already uses. One key, one grouping.
+3. **Both sides must be non-empty.** A county filter that returns nothing gives
+   `|A|=0, |B|=0, intersection=0`, and a naive `len(A & B) == 0` fires. That would
+   collide head-on with §M3.3a, which deliberately preserves current behaviour for a
+   legitimately empty frame. Empty is not disjoint; it is absent.
+4. **Both sides must be at or above a stated row floor.** This one is a threshold
+   and is declared as such below.
+5. **A county present in one year and absent in the other does not reach this
+   limb.** It is a vanishing key, not a disjointness case, and Limb 1 owns it.
+
+**Firing behaviour, measured on every case:**
+
+```
+$ .venv/bin/python s9_spec.py        # scratchpad, 2026-08-04; FLOOR=10
+--- MUST FIRE ---
+OK Connecticut 2023+2024      declarative: True   measured hits: 0        -> RAISES
+OK Alaska 2021+2022           declarative: True   measured hits: 1 [02105] -> RAISES
+OK Virginia 2021+2022         declarative: True   measured hits: 5        -> RAISES
+--- MUST NOT FIRE ---
+OK single-year frame (CT 2024 alone)                                       -> silent
+OK CT 2022+2023 (same tract basis, same county basis)                      -> silent
+OK VA 2019+2020 (sparse strays come and go, no boundary)                   -> silent
+OK VA 2020+2021 (no change at all)                                         -> silent
+OK hand-concat: VA 2022 counties + OH 2023 counties                        -> silent
+OK VA 2018+2019 (out-of-state stray churn, no boundary)                    -> silent
+OK AK 2018+2019 (out-of-state stray churn, no boundary)                    -> silent
+```
+
+**The row floor, and why the document has to accept a threshold here.** Run with no
+floor, the same matrix fails on two cases:
+
+```
+$ FLOOR=0 .venv/bin/python s9_spec.py
+!! VA 2018+2019   measured hits: 4  [('11001',3,2), ('24033',4,2), ('25017',1,1), ('48113',1,1)]
+!! AK 2018+2019   measured hits: 1  [('05005',1,1)]
+```
+
+Every one of those is an **out-of-state stray county** in a single-state pull — DC,
+Maryland, Massachusetts and Texas counties inside a Virginia fetch; an Arkansas
+county inside an Alaska fetch — carrying one to four rows. With so few rows the
+observed tract set is a *sample* of the county, not a description of it, and two
+samples of a large county naturally miss each other.
+
+This **falsifies a specific claim in the v2 draft**, which held that scoping to the
+empty-intersection case made the check presence-robust: "Neither hazard can produce
+a zero intersection." Measured, both can, and five counties in six states do.
+
+The separation is nonetheless wide and clean:
+
+```
+$ .venv/bin/python s8_strays.py
+  FALSE POSITIVES (no boundary): 1-4 rows per county-year   [max 4]
+  TRUE POSITIVES  (real recarve): 41-1,032 rows per county-year   [min 41]
+```
+
+Any floor in 5..41 gives the same verdicts on this sample. **Ten is stated, and it
+is a threshold, not a derivation.** §M6.4's warning is about thresholding on
+*Jaccard*, where intuition runs backwards; this is a floor on *presence*, which is a
+different quantity and fails in the ordinary direction — too few rows means too
+little information. It is recorded as an open item, and the residual exposure is a
+real re-carving in a county with under ten loans in a year, which this check will
+not see.
+
+**The smallest meaningful county is one tract, and it must not be excluded.** A
+one-tract county has an intersection of 0 or 1 and no middle, which invites a rule
+excluding it. That rule would be wrong here: `02105` is Alaska's **only**
+disjoint-within county, so excluding n=1 would drop the measured limb's entire
+Alaska firing. It is also a verified true positive rather than a sparse-data
+artefact — `02105000300` holds for four consecutive years and `02105000400` for the
+next four, flipping exactly at the decennial boundary, while the other ten
+one-tract Alaska boroughs keep their tract ID across it:
+
+```
+$ .venv/bin/python s6_ak_detail.py
+  02105: 2018=000300 2019=000300 2020=000300 2021=000300
+         2022=000400 2023=000400 2024=000400 2025=000400
+  all other AK 1-tract counties at 2021->2022: SAME tract id
+```
+
+At n=1 the limb is maximally sensitive and maximally fragile: it cannot distinguish
+a renumbering from a single misreported record. The row floor is the only thing
+standing between those two, and eight years of stability is evidence available to
+this document that a runtime check comparing two years will never have.
+
+#### What the redesigned check still cannot see
+
+Stated plainly, because a check whose stated purpose exceeds its reach is the defect
+this engagement has closed five times.
+
+1. **It has not caught anything the declarative limbs miss.** Across sixteen
+   adjacent year-pairs in six states where both maps agree, the measured limb fired
+   five times and **all five were false positives**. Across the pairs where a map
+   does change, it fired on six counties — all at 2021→2022, which Limb 1 already
+   refuses. **Net unique findings to date: zero.** It ships as a residual net for a
+   within-county re-scheme that no map knows about, which is a thing that could
+   happen and has not happened in the measured sample. That is an argument from
+   absence and it is named as one.
+2. **A county below the row floor.** Under ten loans in either year and the county
+   is not compared at all.
+3. **Key *reuse* within a county** — the same GEOID covering different ground. The
+   intersection is non-empty, so this limb is silent by construction. That is
+   §M6.4's whole result and it is Limb 1's job.
+4. **A re-carving that preserves at least one tract ID.** One surviving key is
+   enough to make the intersection non-empty. The limb detects total replacement
+   within a county, not partial.
+5. **Counties that are wholly absent from both years.** Nothing can be said about a
+   county with no rows; a frame is not a census.
+6. **Frames with a fabricated or missing `activity_year`.** Both limbs key off it
+   (§M4.1, coverage item 9).
 
 ### M1.3 The unknown year — the load-bearing case
 
 When 2026 data lands and the mapping has no entry for 2026, what happens?
 
-**Decision: raise. Never infer, in either direction.**
+**Decision: never infer, in either direction — and distinguish two questions the v2
+draft conflated.**
+
+> - **Which basis does year Y use?** — needs a citation. Cannot be measured.
+> - **Do the years in this frame share a scheme?** — needs only to know whether they
+>   are the *same*, which all six guards are the only consumers of.
+
+The v2 draft answered both with one raise, and that was wrong for the second one.
+
+**Decision: the maps carry a third state, `UNKNOWN`.** A year with no entry is
+`UNKNOWN`. The rule is:
+
+> **An unmapped year alone in a frame is allowed. An unmapped year pooled with any
+> other year raises.**
+
+This asserts nothing whatever about the unmapped year's basis — which is the point,
+because measurement cannot establish a basis (§M6.4) and this document will not let
+an inference wear a citation's clothes. It also keeps every safety property: two
+years cannot be pooled unless both are mapped and agree, so no vintage-spanning
+aggregation ever proceeds on a guess.
+
+**It resolves a live contradiction.** The v2 draft's §M1.3 raised on an unmapped
+year for *every* tract-keyed operation, single-year ones included, while §M2.2
+declared per-year analysis safe because "within a year the key is internally
+consistent." Both could not be true. `UNKNOWN` makes §M2.2's declaration hold: a
+2026-only frame grouped by tract is exactly as coherent as a 2023-only frame, and
+refusing it asserts a problem that does not exist.
+
+It is also the over-refusal §M2.4 rejects a load-time raise for, and the same shape
+as the false refusal this portfolio has already shipped once in oz-tracker's
+`calculate_benefits()`. A rule that refuses a correct single-year analysis because
+a *different* analysis would be wrong is the mistake this document was written to
+avoid making.
+
+**What `UNKNOWN` does *not* soften: the ban on inferring a basis.** The relaxation
+above is entirely about *scope* — which frames refuse — and changes nothing about
+what the map is allowed to contain. An unmapped year stays unmapped until a human
+adds it with a citation. The argument for that is unchanged from the v2 draft and
+is restated here because `UNKNOWN` makes it easier, not harder, to be lazy about:
 
 The tempting behaviour is "assume the newest vintage we know about." It is wrong,
 and it is wrong in the specific way this document exists to eliminate: it is
@@ -364,15 +700,20 @@ is contingent on Census publication schedules and on FFIEC's adoption of them. A
 constant that encodes a *predicted* lag is a prediction wearing the costume of a
 citation. This portfolio has shipped that mistake.
 
-So: an unmapped year raises, and the message says what a human must do — read the
-CFPB *Summary of {year} Data on Mortgage Lending*, confirm the delineation basis,
-add the entry, cite it in the comment. Adding a year to this mapping is a
-deliberate human act with a citation attached, every time. That is the point.
+So: an unmapped year **pooled with another year** raises, and the message says what
+a human must do — read the CFPB *Summary of {year} Data on Mortgage Lending*,
+confirm the delineation basis, add the entry, cite it in the comment. Adding a year
+to this mapping is a deliberate human act with a citation attached, every time. That
+is the point.
 
-**Cost, stated plainly.** This means `hmda-analyzer` breaks on the first day a new
-HMDA year is served, for any tract-keyed operation, until someone edits a
-constant. That is a real cost and it will annoy someone. It is the correct cost:
-the alternative is being confidently wrong at a boundary in a fair-lending tool.
+**Cost, stated plainly, and it is much smaller than the v2 draft's.** Under
+`UNKNOWN`, `hmda-analyzer` does not break on the first day a new HMDA year is
+served. Single-year analysis on the new year works. What breaks is *pooling* the new
+year with an older one, which is precisely the operation nobody can justify until
+someone has read the citation. That is the correct cost, and unlike the v2 draft's
+version it is one a user cannot route around by reaching for an override, because
+there is nothing to override — the narrowing parameter (§M3.3) gives them the
+single-year answer directly.
 
 **That cost is not prospective. It is already due.** The v1 draft of this document
 was written against 2018–2024 and treated the unmapped-year raise as a future
@@ -393,14 +734,63 @@ $ .venv/bin/python -c "…"   # full-state pulls through the scratch fetcher
 
 (2026 returns HTTP 400 — not yet served.)
 
-So a map shipped with 2024 as its last entry raises on the **current** data year
-on release day, for every tract-keyed operation. **The three maps must each carry
-a 2025 entry at ship time.** The measurements above are consistent with 2025
-continuing on the same schemes as 2024 — tract keys are near-identical and CT is
-still on planning regions — but consistency is not a citation, and §M1.3's whole
-rule is that an entry is a deliberate human act with a citation attached. Locating
-the CFPB *Summary of 2025 Data* statement is therefore a **release blocker**, not a
-nicety, and it is recorded as such in §O.
+Reproduced independently through the package's own endpoint, 2026-08-04:
+
+```
+$ for Y in 2024 2025 2026; do curl -s -o /dev/null -w "%{http_code} -> %{redirect_url}\n" \
+    "https://ffiec.cfpb.gov/v2/data-browser-api/view/csv?years=$Y&states=AK&actions_taken=1,2,3,4,5"; done
+  2024: 301 -> .../datasets/2024/filtered-queries/one-year/50bf....csv
+  2025: 301 -> .../datasets/2025/filtered-queries/snapshot/50bf....csv
+  2026: 400 ->
+```
+
+**Under the v2 draft's rule this was a release blocker. Under `UNKNOWN` it is
+not.** A map whose last entry is 2024 leaves 2025 `UNKNOWN`, and a 2025-only
+tract analysis — the overwhelmingly common thing to do with the current data year —
+proceeds normally. Only pooling 2025 with an earlier year refuses, and refusing
+*that* is correct until someone has read a citation.
+
+**The citation this document's own rule demands does not exist yet, and may not be
+coming.** The CFPB *Summary* series stops at 2023:
+
+```
+$ for Y in 2021 2022 2023 2024 2025; do printf "  summary-of-$Y-...: "; \
+    curl -s -o /dev/null -w "%{http_code}\n" \
+    "https://www.consumerfinance.gov/data-research/hmda/summary-of-$Y-data-on-mortgage-lending/"; done
+  summary-of-2021-...: 200
+  summary-of-2022-...: 200
+  summary-of-2023-...: 200   (published 2024-07-11)
+  summary-of-2024-...: 404
+  summary-of-2025-...: 404
+```
+
+There is no 2024 summary either, which means this may be a **discontinued
+publication rather than a pending one** — the document's designated citation source
+for per-year basis facts may simply have stopped. The 2025 FIG does not state the
+vintage. FFIEC's `cen2025` release notes return HTTP 403 to every automated request
+(the Akamai edge block `_http.py` already documents). **Do not substitute inference
+for the citation.** The measurements are consistent with 2025 continuing on the 2020
+tract scheme and the 2023 county/MSA schemes, and consistency is not a citation;
+§M1.3's entire rule is that measurement cannot establish a basis. 2025 stays
+`UNKNOWN` until a human finds a source, and §O records the search for one as an open
+item rather than a blocker.
+
+**The data-maturity ladder, which the document had not recorded and which changes
+what its own commands return.** The API serves three different dataset classes:
+
+```
+$ for Y in 2018..2025; do ... done      # redirect target, scratchpad 2026-08-04
+  2018: three-year   2019: three-year   2020: three-year   2021: three-year
+  2022: three-year   2023: one-year     2024: one-year     2025: snapshot
+```
+
+A **snapshot** is pre-resubmission. 2025 counts *will* be revised as filers amend,
+and 2023 and 2024 will move from one-year to three-year files. **Every row count in
+this document that touches 2023, 2024 or 2025 will therefore return different
+output next year**, including the CT 105,543 / 112,090 figures that §M6.5's entire
+Connecticut argument is built on. The *finding* is robust — a disjoint key universe
+does not become joint on resubmission — but a reader re-running these commands in
+2027 and getting different numbers has not found an error.
 
 This is worth naming as a pattern, because the document walked into it: a rule
 whose cost is described in the future tense should be checked against the present
@@ -417,11 +807,12 @@ call site changes. Comparisons of the form "do all rows in this frame share a
 basis year" work unchanged for two, three, or seven vintages.
 
 **The caveat: the binding is not purely a function of data year.** Connecticut
-breaks it, and the break is measured, not hypothesised (§M6.5). A year→vintage
-mapping is correct for the *delineation basis* and still insufficient for *key
-comparability*. The design survives a third vintage; it does not, on its own,
-survive Connecticut — which is why §M1.2a pairs the declarative map with a
-measured disjointness check rather than choosing between them.
+breaks it, and the break is measured, not hypothesised (§M6.5). A *tract*
+year→vintage mapping is correct for the delineation basis and still insufficient
+for key comparability. The design survives a third vintage; the **tract map alone**
+does not survive Connecticut — which is why the tract guard consults the county map
+as well, and why §M1.2a pairs the declarative limbs with a measured one rather than
+choosing between them (§M1.2b).
 
 ---
 
@@ -443,12 +834,19 @@ reading:
 
 | Site | Operation | Key | Guarded by |
 |---|---|---|---|
-| `geographic.py:25` `lending_by_tract` | `groupby("census_tract")` | tract | tract map + disjointness |
-| `geographic.py:74` `lending_desert_score` | inherits, then `rank(pct=True)` | tract | tract map + disjointness |
-| `geographic.py:108` `racial_composition_by_tract` | `groupby(["census_tract","derived_race"])` | tract | tract map + disjointness |
-| `lender.py:52` `lender_summary["unique_tracts"]` | `nunique()` | tract | tract map + disjointness |
-| **`geographic.py:51` `lending_by_county`** | `groupby("county_code")` | **county** | **county map + disjointness** |
-| **`lender.py:53` `lender_summary["unique_counties"]`** | `nunique()` | **county** | **county map + disjointness** |
+| `geographic.py:25` `lending_by_tract` | `groupby("census_tract")` | tract | **tract map + county map** + per-county disjointness |
+| `geographic.py:74` `lending_desert_score` | inherits, then `rank(pct=True)` | tract | **tract map + county map** + per-county disjointness |
+| `geographic.py:108` `racial_composition_by_tract` | `groupby(["census_tract","derived_race"])` | tract | **tract map + county map** + per-county disjointness |
+| `lender.py:52` `lender_summary["unique_tracts"]` | `nunique()` | tract | **tract map + county map** + per-county disjointness |
+| **`geographic.py:51` `lending_by_county`** | `groupby("county_code")` | **county** | **county map** |
+| **`lender.py:53` `lender_summary["unique_counties"]`** | `nunique()` | **county** | **county map** |
+
+**Why the tract sites consult the county map.** The county code is the first five
+digits of the tract GEOID, so a county-scheme change is necessarily a tract-key
+change. Connecticut 2023→2024 is the case: the tract map says both years are basis
+2020, and the per-county disjointness limb finds **zero** counties present on both
+sides to compare. Without the county map in the tract guard, that frame is
+completely unguarded for `lending_by_tract`. §M1.2b has the measurement.
 
 `lending_desert_score` is the worst of them: its percentile rank is computed *over
 the collapsed tract set*, so the reference distribution every tract is scored
@@ -462,6 +860,14 @@ schema frozenset. §M2.3 and §M6.6 say what protects the user anyway.
 
 **Per-year analysis that never pools across years.** Confirmed. Each year's rows
 carry that year's delineation; within a year the key is internally consistent.
+
+**This now holds for an *unmapped* year too, which it did not in the v2 draft.**
+§M1.3's `UNKNOWN` state exists so that this paragraph is true without exception: a
+2026-only or 2025-only tract analysis is as coherent as a 2023-only one, and the
+guard does not refuse it. The v2 draft's §M1.3 raised on any unmapped year for every
+tract-keyed operation, single-year included, which contradicted this section
+directly. That contradiction is resolved in §M1.3's favour on the question of
+authority and in this section's favour on the question of scope.
 
 **Any aggregation whose key does not include `census_tract`** — by lender, by
 year, by race, by income band, by action taken. A frame that *spans* the boundary
@@ -491,8 +897,16 @@ change (§M6.5):
 CONNECTICUT -- county_code by year
   2020-2023:   09001 09003 09005 09007 09009 09011 09013 09015   (8 legacy counties)
   2024:        09110 09120 09130 09140 09150 09160 09170 09180 09190   (9 planning regions)
-        jaccard vs prior year = 0.056   <<< KEY UNIVERSE CHANGED
+        jaccard vs prior year = 0.056 WITH the 'NA' sentinel  (= 1/18 exactly)
+                              = 0.000 without it              <<< KEY UNIVERSE CHANGED
 ```
+
+**That `0.056` was the tell, and it sat in this document unread for two passes.**
+With 9 codes on one side and 10 on the other, a Jaccard of 0.056 is exactly 1/18 —
+one shared member — which is arithmetic proof that the intersection is *not* empty.
+§M1.2a two pages earlier reported the same comparison as "intersection=0". Both
+numbers were correct; they were computed with different, unstated sentinel handling.
+§M1.2a has the mechanism and the standing rule that came out of it.
 
 `derived_msa_md` moves too, at the same boundary — CT's `49340` is replaced by
 `47930` in 2024 (jaccard 0.714). CFPB's own 2022 summary already warns of this in
@@ -531,12 +945,56 @@ statement is narrower again:
 **Scope, stated exactly, because it is easy to overclaim in both directions:**
 
 - The **county** limb fails at **2021→2022** (Alaska, measured above) and at
-  **2023→2024** (Connecticut, jaccard 0.056).
-- The **MSA** limb **holds** at 2021→2022 and at 2020→2021, and fails at
-  **2023→2024**. See §M6.6 — and note that this corrects the audit prompt, which
-  placed the MSA failure at 2020→2021. Measured across four states, 2020→2021 has
-  MSA code-set Jaccard 1.000 *and* zero material county reassignments.
+  **2023→2024** (Connecticut, jaccard 0.056 with the sentinel included, 0.000
+  without — §M1.2a).
+- The **MSA** limb has a **basis boundary at 2022 and a second at 2024.** The v2
+  draft said it "holds at 2021→2022", which is true as a *measurement* and false as
+  a statement about the basis. See below.
 - **`state_code`** is not measured to move anywhere in 2018–2025.
+
+**The MSA basis boundary at 2022 — measurement said one thing, the citation says
+another, and the citation wins.**
+
+The v2 draft set the MSA map's boundaries from measurement: zero material
+reassignments across four states at 2021→2022, code-set Jaccard 1.000/1.000/0.938/
+0.857 with both sub-1.000 values traced to single stray rows. Every one of those
+figures still reproduces. **They do not mean what the draft took them to mean.**
+
+CFPB, *Summary of 2023 Data on Mortgage Lending*, published 2024-07-11, retrieved
+and confirmed verbatim 2026-08-04:
+
+> "the data reflect metropolitan statistical area (MSA) definitions released by the
+> Office of Management and Budget in 2020 that became effective **for HMDA purposes
+> in 2022**."
+
+So the MSA basis changes at **2022**, on a citation, and the map must say so. The
+measurement did not contradict it: **a basis can change without moving any code**,
+which is this document's central thesis (§M6.4) applied to MSAs instead of tracts.
+OMB's 2020 delineations happened to leave the four measured states' code sets and
+county memberships essentially untouched — so the instrument that this document
+*proves* cannot see a basis change duly failed to see one. The v2 draft set a
+boundary using the one tool it had already established was the wrong tool for the
+job.
+
+That is §M6.4's own lesson, applied to tracts and not to MSAs, and it is the third
+time in this engagement that a limb was scoped from measurement because the
+measurement was the thing available.
+
+**Corroborating citation for the 2024 entry**, verified independently 2026-08-04:
+**OMB Bulletin No. 23-01**, *Revised Delineations of Metropolitan Statistical Areas,
+Micropolitan Statistical Areas, and Combined Statistical Areas*, issued
+**2023-07-21**, which updates and supersedes OMB Bulletin No. 20-01 (2020-03-06) and
+is the first delineation to use 2020 Decennial Census data. Applying §M1.1's rule —
+boundaries and codes in effect on 1 January of the LAR year — a bulletin issued
+2023-07-21 is in effect on 2024-01-01, so its first LAR year is **2024**. That is
+the cited rule applied to an *already-published* bulletin, not a prediction of a
+future publication, which is the distinction §M1.3 turns on. FFIEC's own adoption
+notice was not read (HTTP 403, §O item 3), so this entry rests on Reg C plus the
+bulletin, corroborated by CT's planning regions appearing in the 2024 LAR.
+
+So `MSA_CODE_BASIS_BY_YEAR` has boundaries at **2022** (OMB 2020 delineations, per
+the CFPB 2023 summary) and at **2024** (OMB Bulletin 23-01) — not the single 2024
+boundary the v2 draft measured its way to.
 
 And the structural point, which matters more than any individual exception —
 **restated, because the v1 draft got its second half wrong:**
@@ -730,15 +1188,60 @@ unanalysable", and 16.0% sit on a key that changed by more than 1% of its ground
 
 1. **Filter `AREALAND_PART > 0` in the ≥2-parts limb.** A zero-land-area part is
    not a part. This is not a threshold choice; it is excluding rows that describe
-   no ground. Nationally it removes 1,787 of 46,204 calls. The slivers are not
-   kept, and the v1 rule statement in §M6.4 is amended.
-2. **Drop the word "materially" from the error message.** It is unearned at the
+   no ground.
+
+   *Corrected counts.* The v2 revision reported this as removing "1,787 of 46,204
+   calls", leaving 44,417. Re-running the rule with the filter applied — rather
+   than subtracting a separately-counted sliver population from the unfiltered
+   total — gives a different answer:
+
+   ```
+   $ .venv/bin/python s14_sliver.py         # scratchpad, 2026-08-04
+     unfiltered : 46,204          [reproduces the v2 figure exactly]
+     filtered   : 44,915          [v2 stated 44,417]
+       lost by the filter (U-F): 1,289      [v2 implied 1,787]
+       gained by the filter    :     0
+     2020 GEOIDs with >=2 rows but exactly ONE live part: 1,733
+     recarved GEOIDs having >=1 zero-land-area row      : 3,045
+   ```
+
+   1,733 GEOIDs are made to *look* multi-part by zero-area rows, but 444 of those
+   are independently RECARVED by the 1%-land-change limb and survive the filter, so
+   only **1,289** actually drop out. Neither 1,787 nor 44,417 reproduces under any
+   variant tried. Immaterial to every conclusion — §M3.1 makes this metric context
+   in a message rather than a trigger — but it is a number in the document and it
+   was wrong.
+
+2. **Declare the zero-land-area tracts, rather than letting two sections treat
+   them opposite ways.** The ≥99%-same-ground count divides land kept by
+   `AREALAND_TRACT_20`. For **63** of the RECARVED 2020 tracts that denominator is
+   zero, so the share is `0/0` — and taking it as `1.0` counts a tract with no land
+   as *unchanged ground*, in the same code block where decision 1 above has just
+   ruled that a zero-land-area part "is not a part". Same edge case, opposite
+   treatment, undeclared.
+
+   ```
+   $ .venv/bin/python s13_pin.py            # scratchpad, 2026-08-04
+     Rule-A RECARVED (national)              : 46,204
+       ...whose 2020 tract has ZERO land area:     63
+       >=99% same ground, EXCLUDING them     : 19,377  (41.9%)
+       >=99% same ground, INCLUDING them as 1.0: 19,440  (42.1%)
+   ```
+
+   **Decision: exclude them, for consistency with decision 1 — the figure is 41.9%
+   / 19,377.** A tract with no land has no ground to have kept. The difference is
+   0.2 points and changes nothing, **which is exactly why it should be stated
+   rather than smoothed**: an edge case that does not matter is the cheapest
+   possible place to be explicit about a convention, and the 42.1% figure appears
+   in a user-facing error message (decision 3 below), where "about 42%" remains
+   the honest rounding either way.
+3. **Drop the word "materially" from the error message.** It is unearned at the
    1% threshold and the document has no defended threshold to replace it with.
    §M5.1 rejects a crosswalk precisely because proportional allocation is "a
    modelling choice masquerading as a data-cleaning step"; calling a 1%-area
    change "materially different ground" is the same move, made by this document
    about its own number.
-3. **The message states the count and names its limits**, in this shape:
+4. **The message states the count and names its limits**, in this shape:
 
    > `lending_by_tract` refused: this frame spans tract delineation bases 2010
    > (2021) and 2020 (2022).
@@ -842,10 +1345,38 @@ propagate. Concretely, for 0.6.0:
    block can meaningfully render, so an unanticipated type propagates by default.
    A report that fails to generate is a correct outcome; a report that renders a
    refusal as a table cell is not.
-3. Either way, **a test asserts that a geography-vintage refusal propagates out of
-   `generate_disparity_report` and `summary_table`** rather than appearing in the
-   returned string. Without it this regresses the moment someone adds the tract
-   section.
+3. **A test asserts the allowlist mechanism — and it cannot assert the geography
+   path, because that path does not exist yet.**
+
+   The v2 revision specified "a test asserts that a geography-vintage refusal
+   propagates out of `generate_disparity_report` and `summary_table`". **That test
+   cannot be written as specified.** Propagating a geography-vintage refusal
+   requires a guarded function to be reachable from the report layer, and none is:
+   all five geography imports in `report/generator.py` are dead (§M3.2a's first
+   correction — that is what "latent" means). The four guarded `try` blocks wrap
+   `denial_rate_by_race`, `disparity_ratio` twice and `denial_rate_by_income_band`,
+   none of which is a geography-keyed site.
+
+   What can be written today is a test that monkeypatches one of those disparity
+   functions to raise the new exception and asserts it propagates rather than
+   landing in a table cell. **That tests the allowlist mechanism, not the geography
+   path**, and the difference must be stated in the test's own docstring — a test
+   named for an end-to-end guarantee it does not provide is precisely the
+   misdescribed gate this document keeps finding.
+
+   The genuine end-to-end test becomes writable the moment someone wires the tract
+   section those five imports were staged for, and it should be written *then*, in
+   the same change.
+
+**What is and is not enforced, stated plainly.** §M2.4's AST sweep walks
+`hmdaanalyzer/**/*.py`, which includes `report/`, but it enumerates *geography-keyed
+aggregation sites* — and `report/` has none, so the sweep's expected set is silent
+about it. **Nothing enforces the exception allowlist.** A sixth `except Exception`
+added to `report/generator.py` tomorrow would swallow the new exception and no test
+would fail. Inverting the allowlist (option 2) is still right because it fails safe
+— a new swallowing site would have to be written deliberately rather than inherited
+by default — but the inversion is a convention, not a gate, and it is not the same
+thing as the site-list enforcement §M2.4 buys for the aggregation sites.
 
 This is a design question, not an implementation detail, because it decides
 whether §M3.1's central claim survives contact with the one shipped caller that
@@ -982,26 +1513,72 @@ deliberately, because nothing carries it there by itself.
 bar is that the acknowledgement travels with the data, not with the call: the
 returned object carries the cross-vintage fact as a value in a column, and any
 frame derived from it carries it forward. A flag that exists only in the calling
-code fails this bar. A flag that sets `DataFrame.attrs` also fails it — but **not
-for the reason the v1 draft gave.** It claimed the marker "evaporates on the first
-`.copy()` or `.merge()`". Measured, `.copy()` preserves `attrs`. What drops it is
-`.merge()` and `.agg()` — and `.agg()` is the operation at the heart of
-`lending_by_tract`, which the v1 draft did not name. Identical on pandas 1.4.4,
-2.2.3 and 3.0.5 (§V-2):
+code fails this bar. A flag that sets `DataFrame.attrs` also fails it — but **neither of the two
+previous drafts got the reason right.**
+
+The v1 draft claimed the marker "evaporates on the first `.copy()` or `.merge()`";
+`.copy()` in fact preserves it. The v2 revision corrected that and **repeated the
+fault it was correcting**: it reported `attrs` survival as a per-operation property,
+listing `pd.concat` under "survives" alongside `.copy()` and slicing. Each operation
+was measured in exactly one configuration and the result generalised to the
+operation.
+
+Measured in all four configurations, on **1.4.4, 2.2.3 and 3.0.5** — and they are
+**not** identical, which is the finding:
 
 ```
-5) attrs survives .copy()   : True
-   attrs survives pd.concat: True
-   attrs survives .merge()  : False
-   attrs survives .agg()    : False
-   attrs survives slicing   : True
+$ .venv-pd{1.4.4,2.2.3,3.0.5}/bin/python s10_attrs.py    # scratchpad, 2026-08-04
+
+                                          1.4.4   2.2.3   3.0.5
+--- .merge() ---
+  left HAS attrs, right HAS same attrs    False   True    True     <<< DIVERGES
+  left HAS attrs, right has NONE          False   False   False
+  left has NONE,  right HAS attrs         False   False   False
+  left HAS attrs, right HAS DIFFERENT     False   False   False
+--- pd.concat ---
+  left HAS attrs, right HAS same attrs    True    True    True
+  left HAS attrs, right has NONE          False   False   False
+  left has NONE,  right HAS attrs         False   False   False
+  left HAS attrs, right HAS DIFFERENT     False   False   False
+--- the realistic vintage-spanning case (all three versions) ---
+  concat, mismatched attrs: {}          concat, matching attrs: {'basis': 2010}
+--- single-operand operations (all three versions) ---
+  .copy(): {'basis': 2010}   slicing: {'basis': 2010}   .agg(): {}
 ```
 
-**The conclusion stands and is in fact stronger:** `attrs` is not a reliable
-carrier. It survives the three operations that do not matter here and is dropped
-by the two that do — including, precisely, the aggregation this whole design is
-guarding. **This document's position is that no override should ship in v1.** Ship
-the narrowing, and let the audit or a real user demand more.
+**On 2.2.3 and 3.0.5, `.merge()` and `pd.concat` follow one rule, not two:**
+
+> `attrs` survives a multi-operand operation **iff every operand carries identical
+> `attrs`.**
+
+That restatement matters because **`pd.concat` is the operation that creates the
+vintage-spanning frame**, and the v2 draft listed it flatly under "survives". In the
+only case that arises in practice — two years carrying two different basis values —
+the operands are *not* identical, so `attrs` is dropped there too. The v2 draft had
+measured the matching-attrs case and reported it as a property of `concat`.
+
+**On 1.4.4 the rule does not hold: `.merge()` never propagates `attrs` at all**, even
+with identical operands. So across the range `pyproject.toml` actually supports
+(`pandas>=1.4.0`), this behaviour is not merely fragile — it is **not consistent
+between versions**, and a library that depended on it would behave differently for
+two users who both satisfy its declared dependency.
+
+**The conclusion is unchanged and is now as strong as it can get:** `attrs` is not a
+reliable carrier. It survives only single-operand operations that were never the
+risk; it is dropped by `.agg()`; it is dropped by every multi-operand operation whose
+operands actually differ — which is all of them, in the situation this design exists
+for — and on the floor of the supported range it is dropped by `.merge()`
+unconditionally. **This document's position is that no override should ship in v1.**
+Ship the narrowing, and let a real user demand more.
+
+*Scope note.* The v2 draft's "identical on pandas 1.4.4, 2.2.3 and 3.0.5" is
+**withdrawn for `attrs`** and **upheld for the durability block in §M4.1** — items
+1, 2, 3, 4 and 4b were re-run on 1.4.4 in this pass and do reproduce identically.
+1.4.4 publishes no wheel for the Python 3.14 interpreter these measurements
+otherwise use, so it was tested under Python 3.10 with `numpy==1.26.4` pinned
+(1.4.4's wheels are ABI-incompatible with numpy 2.x). That is a different
+interpreter, and it is stated because the version matrix is the whole point of the
+measurement.
 
 ### M3.4 What a user with a legitimate need does
 
@@ -1302,21 +1879,25 @@ dangerous sentence in the document: it named the exit and the exit was unguarded
 
 Measured (§M2.3, §M6.7):
 
-| Key | Moves at | Mode |
-|---|---|---|
-| `census_tract` | 2021→2022 (national); 2023→2024 (CT) | reuse; replacement |
-| `county_code` | **2021→2022 (AK `02261`→`02063`+`02066`)**; 2023→2024 (CT) | replacement; replacement |
-| `derived_msa_md` | **2023→2024** (both modes — see §M6.6) | reuse **and** replacement |
-| `state_code` | not measured to move, 2018–2025 | — |
+| Key | Basis changes at | Observed to move at | Mode |
+|---|---|---|---|
+| `census_tract` | 2022 | 2021→2022 (national); 2023→2024 (CT) | reuse; replacement |
+| `county_code` | 2022, 2024 | 2021→2022 (AK `02261`→`02063`+`02066`); 2023→2024 (CT) | replacement; replacement |
+| `derived_msa_md` | **2022** (cited), 2024 | 2023→2024 (both modes — §M6.6) | reuse **and** replacement |
+| `state_code` | — (no map) | not measured to move, 2018–2025 | — |
+
+The MSA row's two columns disagree deliberately: **the basis changed in 2022 and
+nothing observable moved**, which is §M2.3's correction and this document's thesis
+in miniature — a basis can change without moving a single code.
 
 A user escaping the tract rule by moving up to county lands on a key that moves at
 **the same boundary they were escaping**, in Alaska. Moving up to MSA is safe
 across 2021→2022 and lands on an unguarded reuse at 2023→2024.
 
 *What makes this option usable in 0.6.0:* the county key is now guarded at both
-its sites (§M2.1), with its own basis map and the same disjointness check. So the
-advice is no longer "this is safe" but "this is checked" — a county aggregation
-that spans a county-basis boundary now refuses, exactly as a tract one does.
+its sites (§M2.1) by its own basis map. So the advice is no longer "this is safe"
+but "this is checked" — a county aggregation that spans a county-basis boundary now
+refuses, exactly as a tract one does.
 
 *Cost:* loses tract granularity, which is often exactly the point of the analysis.
 *Residual exposure:* `state_code` has one aggregation site and no basis map,
@@ -1385,9 +1966,13 @@ non-colliding 2021 tracts whose desert verdict flips when pooled: 0
 Baltimore city, 196 of ~198 GEOIDs collide, so the non-colliding set is nearly
 empty and there was almost nothing to test.
 
-**Open item O-2 is now closed: the effect is sized, and it is larger on the
-innocent tracts than on the guilty ones.** Three counties with substantial
-non-colliding populations, 2021 alone vs pooled 2021+2022 (§V-3):
+**The v1 draft's open item — "the reference-distribution contamination is argued
+from mechanism, not sized" — is now closed: the effect is sized, and it lands
+harder on the innocent tracts than on the guilty ones.** (That item was numbered
+`O-2` in the v1 open-items list. The reference is spelled out rather than numbered
+because §O has since been renumbered, and `O-2` now denotes an **open** item; see
+the note below.) Three counties with substantial non-colliding populations, 2021
+alone vs pooled 2021+2022 (§V-3):
 
 ```
 $ .venv/bin/python r9_spread.py          # scratchpad, 2026-08-04
@@ -1611,10 +2196,19 @@ does:
 
   Baltimore city is the reuse case: Jaccard 0.985 says "safe", the map says
   "unsafe", and the map is right. Connecticut 2023→2024 is the replacement case:
-  the map says "safe", Jaccard 0.000 says "unsafe", and the measurement is right.
+  the **tract** map says "safe" and a key-set comparison says "unsafe".
   **Neither instrument dominates. §M1.2a ships both**, and this section is the
   proof that the declarative one cannot be dropped — not the proof that the
   measured one must be.
+
+  **One correction v3 makes to this row.** "The measurement is right" about
+  Connecticut was read by the v2 draft as "the measured limb catches Connecticut",
+  and that does not follow. A *statewide* key-set comparison catches it; the
+  *per-county* limb §M1.2b actually specifies does not, because no CT county exists
+  on both sides of the boundary to compare (zero disjoint-within counties). What
+  catches Connecticut is the **county basis map**, which is declarative. The
+  replacement column above is right that the tract map alone is blind to it; it is
+  wrong that measurement is the only remaining instrument.
 - **High ID stability is the *more* dangerous case, not the safer one.** Where IDs
   churn, rows fall into disjoint buckets and the tract count visibly inflates.
   Where IDs persist, rows silently merge. Intuition runs backwards here, and any
@@ -1631,12 +2225,32 @@ Connecticut tract key changes with it**:
 
 ```
 CONNECTICUT -- census_tract GEOID universe by year
+  (these are IN-STATE counts: prefix 09*, which also excludes the 'NA' sentinel)
   2018:  825 tracts   prefixes 09001..09015
   2021:  824 tracts   prefixes 09001..09015     jaccard vs 2020 = 0.996
   2022:  872 tracts   prefixes 09001..09015     jaccard vs 2021 = 0.822  <<< the tract boundary
   2023:  872 tracts   prefixes 09001..09015     jaccard vs 2022 = 1.000
   2024:  872 tracts   prefixes 09110..09190     jaccard vs 2023 = 0.000  <<< EVERY KEY CHANGED
 ```
+
+**Sentinel and stray handling for this table, per the standing rule (§M1.2a).** The
+counts above are in-state only. The three readings differ, and the difference is not
+uniform across years, so the filter has to be named rather than assumed:
+
+```
+$ .venv/bin/python s1_sentinel.py
+  CT 2018: raw=835  ex-NA=834  in-state(09*)=825     <-- 9 out-of-state tracts
+  CT 2021: raw=825  ex-NA=824  in-state(09*)=824
+  CT 2022: raw=874  ex-NA=873  in-state(09*)=872     <-- 1 out-of-state (72141957100, PR)
+  CT 2023: raw=873  ex-NA=872  in-state(09*)=872
+  CT 2024: raw=873  ex-NA=872  in-state(09*)=872
+  CT 2025: raw=873  ex-NA=872  in-state(09*)=872
+```
+
+A reader tempted to "correct" 872 to 873 throughout should not: that is right for
+2023–2025 and wrong for 2018 and 2022, because those years also carry out-of-state
+strays. The **through-the-loader** figures — which are what §M1.2a's showcase and
+any shipped check actually see — are 873/873 with the sentinel and 872/872 without.
 
 And it is a **pure renumbering**, not a re-carving:
 
@@ -1722,10 +2336,17 @@ that a reader might spot as a shifted distribution; it is a **volume-driven
 redistribution between two disjoint halves**, which is precisely why the aggregate
 desert count barely moves while 25 individual verdicts flip.
 
-**Consequence for the design.** A year→basis map cannot see this: CT 2023 and CT
-2024 are both basis 2020. The disjointness check in §M1.2a is what catches it, and
-this section is that check's justification. It is a demonstrated hole, not a
-theorised one, and it belongs in the coverage section as such.
+**Consequence for the design.** The *tract* year→basis map cannot see this: CT 2023
+and CT 2024 are both basis 2020. The v2 draft concluded that the disjointness check
+was therefore what catches it. **That conclusion does not survive §M1.2b.** The
+per-county limb finds zero counties present on both sides — every county vanishes
+and a different one appears — so it never runs a comparison at all. What catches
+Connecticut is the **county** basis map (2020 → 2023), consulted by the tract guard
+because the county code is the first five digits of the tract GEOID (§M1.2b,
+§M2.1). It remains a demonstrated hole rather than a theorised one, and it belongs
+in the coverage section as such — but the instrument that closes it is declarative,
+and this section is the justification for extending the declarative limb rather
+than for the measured one.
 
 ### M6.6 Does `load_range` have any other cross-year join?
 
@@ -1840,12 +2461,47 @@ covers different counties in 2020 than in 2021" — does not hold: 25540 covers
 does cover different ground in **2024** (`09110`, `09130`), which is the finding,
 one boundary later.
 
-This is the same artefact class the audit correctly declined to file for the
-2019→2020 apparent MSA contraction, and it is worth naming as a method rule: **a
-key-membership change is only a delineation change if it moves a material share
-of the key's rows.** A single misreported record is indistinguishable from a
-boundary revision under a set-difference test, and single misreported records are
-common.
+**What produces those three rows — the v2 draft named the wrong mechanism.** It
+attributed them to out-of-state county codes in single-state pulls. That phenomenon
+is real, but it is a **2018–2019 artefact and is resolved by 2020**: Virginia's
+distinct `county_code` count runs 234 → 146 → 134 across 2018–2020 (sentinel
+included), and the out-of-state codes behind it go 100 → 13 → 1. By 2020 there is
+essentially nothing left of it, so it cannot explain three rows in CT 2020.
+
+**The actual cause is intra-record geography disagreement**: a row whose
+`census_tract` names a different county than its own `county_code`. CFPB derives
+`derived_msa-md` from the *tract*, so the MSA follows the tract's real county rather
+than the county the filer reported. Measured on the raw CSV, sentinel rows excluded
+from both columns:
+
+```
+$ .venv/bin/python s5_percounty.py       # scratchpad, 2026-08-04
+  CT 2020: 3 disagreeing (county_code, census_tract) pairs, 3 rows of 211,349
+      county_code=09001  census_tract=09003473100 (prefix 09003)  rows=1
+      county_code=09009  census_tract=09003520501 (prefix 09003)  rows=1
+      county_code=09009  census_tract=09007541401 (prefix 09007)  rows=1
+  CT 2023: 0     CT 2024: 0     AK 2021: 0
+  VA 2020: 5 pairs, 7 rows of 719,179
+```
+
+Three rows, and they reconcile **exactly** with the stray counts above. `09003` and
+`09007` are both 25540 counties, so all three rows are assigned MSA 25540: one under
+reported county `09001` and two under `09009` — which is precisely the
+`{'25540': 1}` and `{'25540': 2}` observed. Three rows in 211,349.
+
+This matters beyond the anecdote for two reasons. **First**, §M1.2b's per-county
+limb groups by `county_code`, and this is the measured size of the disagreement it
+tolerates by doing so — small, but not zero, and it is why that choice is stated
+rather than assumed. **Second**, the v2 draft used the wrong mechanism to constrain
+the check: out-of-state strays and intra-record disagreement have different
+magnitudes, different year profiles, and different fixes, and a check scoped against
+the wrong one is scoped against nothing.
+
+It remains the same artefact class the audit correctly declined to file for the
+2019→2020 apparent MSA contraction, and the method rule stands: **a key-membership
+change is only a delineation change if it moves a material share of the key's
+rows.** A single misreported record is indistinguishable from a boundary revision
+under a set-difference test, and single misreported records are common.
 
 **Guard decision: guidance, not a site — and here is what protects the user.**
 §M6.2's sweep finds zero aggregations on `derived_msa_md`; it appears once, in
@@ -1870,24 +2526,37 @@ site — which is the point of asserting set equality rather than a subset.
 
 ### M6.7 County-key stability — the jurisdictions checked
 
+**Re-run both ways, per the standing rule (§M1.2a).** The v2 draft's figures in this
+table were the sentinel-*excluded* ones, presented without saying so:
+
 ```
-$ .venv/bin/python r2_alaska.py          # full-state files, 2018-2024
+$ .venv/bin/python s1_sentinel.py        # full-state files, 2018-2025
 === ALASKA county_code universe by year ===
-  2018->2019  jaccard=0.732  n= 36   <<< sparse-county noise, no boundary change
-  2019->2020  jaccard=0.806  n= 29   <<< sparse-county noise, no boundary change
-  2020->2021  jaccard=1.000  n= 29
-  2021->2022  jaccard=0.903  n= 30   <<< REAL: 02261 -> 02063 + 02066
-  2022->2023  jaccard=1.000  n= 30
-  2023->2024  jaccard=1.000  n= 30
+                    WITH 'NA'        WITHOUT 'NA'
+  2018->2019   |A|=36 |B|=37 j=0.738  |A|=35 |B|=36 j=0.732  <<< sparse-borough noise
+  2019->2020   |A|=37 |B|=30 j=0.811  |A|=36 |B|=29 j=0.806  <<< sparse-borough noise
+  2020->2021   |A|=30 |B|=30 j=1.000  |A|=29 |B|=29 j=1.000
+  2021->2022   |A|=30 |B|=31 j=0.906  |A|=29 |B|=30 j=0.903  <<< REAL: 02261 -> 02063+02066
+  2022->2023   |A|=31 |B|=31 j=1.000  |A|=30 |B|=30 j=1.000
+  2023->2024   |A|=31 |B|=31 j=1.000  |A|=30 |B|=30 j=1.000
+  2024->2025   |A|=31 |B|=31 j=1.000  |A|=30 |B|=30 j=1.000
 
   02261: 2018=168  2019=223  2020=311  2021=323  2022=-    2023=-   2024=-
   02063: 2018=-    2019=-    2020=-    2021=-    2022=158  2023=92  2024=119
   02066: 2018=-    2019=-    2020=-    2021=-    2022=40   2023=26  2024=35
 ```
 
-Note the two false positives at 2018→2019 and 2019→2020: Jaccard 0.732 and 0.806
-in years with **no boundary change**, caused purely by low-volume boroughs having
-zero rows in one year. This is the measurement hazard §M1.2a scopes around.
+The sentinel inflates every Jaccard in this table by adding one member to both
+sides. Note that the **2021→2022 row was corrected too** — 0.903 → 0.906 — and it
+was *not* among the figures flagged for correction in this revision's brief. It was
+found by re-running the whole table both ways rather than only the rows that were
+named, which is the standing rule doing its job on its first outing.
+
+Note the two false positives at 2018→2019 and 2019→2020: Jaccard 0.738/0.732 and
+0.811/0.806 in years with **no boundary change**, caused purely by low-volume
+boroughs having zero rows in one year. This is one of the two measurement hazards
+§M1.2b scopes around — and §M1.2b now measures that the *other* one, out-of-state
+strays, can produce a zero intersection, which the v2 draft asserted it could not.
 
 **The relationship-file companions the audit named, checked against the LAR:**
 
@@ -1907,18 +2576,33 @@ future reader does not re-open them.
 pulls carry out-of-state county codes, in volume:
 
 ```
-$ .venv/bin/python r2_counties.py        # VA full-state files
-  2018: 233 counties
-  2019: 145 counties | -['04013','06037','06053', ... ,'78010','99999']  (~100 codes)
-  2020: 133 counties | -['11001','12061','18019', ...]
-  2021: 133 counties
+$ .venv/bin/python s1_sentinel.py        # VA full-state files, both ways
+                WITH 'NA'   WITHOUT 'NA'
+  2018:            234          233
+  2019:            146          145      | -['04013','06037', ... ,'78010','99999']  (~100 codes)
+  2020:            134          133      | -['11001','12061','18019', ...]
+  2021:            134          133
 ```
 
-Virginia does not have 233 counties. A `states=VA` fetch contains rows whose
-`county_code` is in another state entirely, and the set of such strays changes
-every year. Any disjointness check that consumes a raw key set will read this as
-instability — a second, independent reason the check is scoped to the
-empty-intersection case (§M1.2a).
+Virginia does not have 233 counties, still less 234. A `states=VA` fetch contains
+rows whose `county_code` is in another state entirely, and the set of such strays
+changes every year.
+
+**Two corrections the v2 draft needs here.** First, the counts above were the
+sentinel-excluded ones stated as if they were the raw ones (§M1.2a). Second, and
+more consequential: **this phenomenon is a 2018–2019 artefact and is essentially
+resolved by 2020** — the out-of-state code count runs 100 → 13 → 1 across
+2018→2019→2020. The v2 draft used it to explain stray rows in **CT 2020**, where by
+then there was almost nothing left of it to explain anything; §M6.6 corrects that
+attribution to intra-record geography disagreement.
+
+Where the phenomenon *is* load-bearing is §M1.2b, and there it is worse than the v2
+draft allowed. The draft held that scoping the check to an empty intersection made
+it presence-robust — "neither hazard can produce a zero intersection". Measured,
+out-of-state strays **can and do**: five stray counties across VA and AK produce a
+zero intersection at 2018→2019 with no boundary change anywhere. That is why
+§M1.2b's per-county limb carries a row floor and why the floor is declared as a
+threshold rather than presented as a derivation.
 
 ### M6.8 The narrowing parameter's degenerate cases
 
@@ -1973,16 +2657,23 @@ stopped at the mode that announces itself.
    tracts get a wrong `app_percentile` and 25 get a wrong `is_lending_desert`
    verdict, while the aggregate desert count moves only 384 → 381. Per-tract
    `applications` and `denials` are the *only* things that survive intact. §M6.5.
-   **What now covers it:** the measured disjointness check (§M1.2a), which is in
-   the design specifically because this case defeats the declarative map.
+   **What now covers it:** **not** the measured check, which was the v2 draft's
+   answer and is wrong. CT produces *zero* disjoint-within counties — every county
+   vanishes and a different one appears, so there is nothing for an intersection
+   test to compare. What covers it is the **county basis map, consulted by the
+   tract guard** (§M1.2b, §M2.1): county basis 2020 ≠ 2023, so the frame refuses
+   declaratively, on a citation. Had the redesign simply replaced the frame-level
+   check with a per-county one, this case would have become unguarded.
 
 2. **The escape route up to county or MSA — the v1 draft named it and did not
    guard it.** §M5.2 option 2 told users to "aggregate to a geography that survives
    the boundary". No such geography exists among these keys. The county key moves
    at **2021→2022** (Alaska) and at 2023→2024 (Connecticut); the MSA key moves at
    **2023→2024**, in both modes. §M2.3, §M6.6, §M6.7.
-   **What now covers it:** county basis map + disjointness check at both county
-   sites (§M2.1); §M5.2 option 2 rewritten.
+   **What now covers it:** the county basis map at both county sites (§M2.1);
+   §M5.2 option 2 rewritten. Note the county sites are guarded by the map alone —
+   the per-county disjointness limb is a *tract*-key instrument and has nothing to
+   say about a county-key aggregation.
    **What does not:** `derived_msa_md` has no aggregation site in this package
    (§M6.2) and therefore no guard. A user who follows the rewritten §M5.2 option 2
    and does their own MSA `groupby` is protected only by the documentation and by
@@ -2015,8 +2706,9 @@ stopped at the mode that announces itself.
    as covering this. It does not cover it.
 
 6. **The non-colliding spread — the third hole, now sized rather than open.** The
-   v1 draft logged this as "argued from mechanism, not sized" (§O-2). It is sized,
-   and it is worse than the framing "colliding rows are corrupted" implies.
+   v1 draft logged this as "argued from mechanism, not sized" in its own open-items
+   list. It is sized, and it is worse than the framing "colliding rows are
+   corrupted" implies.
    Tracts whose GEOID appears in only ONE year cannot have merged with anything —
    their `applications` are provably unchanged — and their derived statistics move
    anyway, because `lending_desert_score` ranks them against a reference
@@ -2087,6 +2779,41 @@ stopped at the mode that announces itself.
     `geographic.py:83-91`, which is out of scope and unexamined. The five-tract
     floor in §M3.3a is a statement about when the flag is *arithmetically*
     reachable, not about when it is *statistically* meaningful.
+
+15. **The measured per-county limb has, to date, found nothing the declarative
+    limbs do not.** Across sixteen adjacent year-pairs in six states where both
+    basis maps agree, it fired five times and all five were out-of-state stray
+    counties. Across the pairs where a map does change, everything it found was
+    already refused declaratively. It ships as a residual net for a within-county
+    re-scheme at a non-boundary year — a case that is possible and has not been
+    observed. **That is an argument from absence**, exactly like coverage item 3's
+    for `state_code`, and it is named as one. §M1.2b.
+
+16. **Counties below the row floor are not compared at all.** §M1.2b's per-county
+    limb requires ten rows on each side. Below that, an observed tract set is a
+    sample rather than a description, and a real re-carving in a county with under
+    ten loans in a year passes unseen. The floor is a threshold, declared as one,
+    and recorded in §O.
+
+17. **The `NA` sentinel is a valid reported geography, and every key-set number in
+    this document depends on how it was handled.** `census_tract` and `county_code`
+    carry the literal string `NA` in every state-year measured; `read_csv` coerces
+    it to `NaN`, and `groupby`/`nunique` drop it. Four figures in the v2 draft were
+    silently the sentinel-excluded ones. This is not fixed by the guard — it is a
+    property of the data and of pandas, and it will contaminate the *next*
+    measurement anyone makes unless they follow the standing rule in §M1.2a.
+    Rows with a null geography key are excluded from every comparison and are
+    therefore **also excluded from every aggregation** — a lending-desert analysis
+    of Connecticut 2024 silently omits 1,173 rows, and nothing in the output says
+    so. That exposure is out of scope here and is real.
+
+18. **The data-maturity ladder.** 2018–2022 are served as three-year files,
+    2023–2024 as one-year files, and 2025 as a **pre-resubmission snapshot**
+    (§M1.3). 2025 counts will be revised and 2023–2024 will move to three-year
+    files, so every row count in this document that touches those years will
+    return different output on a later re-run. The findings are robust to this;
+    the numbers are not. A reader who re-runs these commands and gets different
+    counts has not found an error.
 
 ---
 
@@ -2260,15 +2987,76 @@ finding. Not reproduced exactly: the audit's "68.7%" ≥99%-same-ground share
 (measured 1,787 nationally) — both are scope differences rather than errors, and
 both point the same way as the audit's conclusion.
 
-**And the thing THIS prompt did not know existed: the 2025 data year is already
-served.** §M1.3 argues the unmapped-year raise entirely in the future tense —
-"when 2026 data lands", "in 2032" — and treats the resulting breakage as a cost to
+**And the thing THAT prompt did not know existed: the 2025 data year is already
+served.** §M1.3 argued the unmapped-year raise entirely in the future tense —
+"when 2026 data lands", "in 2032" — and treated the resulting breakage as a cost to
 be accepted later. The CFPB API returns a complete 2025 snapshot today: 19,621
-Alaska rows, 123,752 Connecticut rows, `activity_year='2025'`. A map shipped with
-2024 as its last entry raises on the current data year on release day. The maps
-must carry 2025 entries, with citations, before 0.6.0 ships. It was found by
+Alaska rows, 123,752 Connecticut rows, `activity_year='2025'`. It was found by
 asking what the API was actually serving rather than by reading the document's
 year range — the same move that found Connecticut and Alaska. §M1.3, §O.
+
+**Against the v2 revision** (this pass's findings):
+
+24. **The `NA` sentinel invalidated §M1.2a's showcase for its own check.**
+    `census_tract` and `county_code` carry the literal string `NA` in every
+    state-year measured, 40 of 40; `read_csv` coerces it to `NaN` and `groupby`
+    drops it. Through the shipped loader, CT 2023 vs 2024 has key-set intersection
+    **1**, not 0, so the empty-intersection check the section was introducing does
+    **not** fire on the one case it was introduced for. Four figures corrected, a
+    fifth (AK 2021→2022, 0.903 → 0.906) found by re-running the whole table rather
+    than the named rows. §M1.2a.
+25. **The document contained its own refutation for two passes.** §M2.3's CT county
+    Jaccard of 0.056 is exactly 1/18 over 9 and 10 codes — arithmetic proof of a
+    non-empty intersection — sitting two pages from §M1.2a's "intersection=0".
+    Neither number was wrong; the sentinel handling was unstated and different.
+26. **Frame-level disjointness was the wrong scope, independently of the
+    sentinel.** Alaska 2021→2022 has one disjoint-within county, one vanishing and
+    two appearing while 27 hold; statewide intersection is 144, so a frame-level
+    check is silent. §M1.2b.
+27. **"Neither hazard can produce a zero intersection" is false.** §M1.2a claimed
+    the empty-intersection scope made the check presence-robust against
+    out-of-state strays and sparse keys. Measured, five stray counties across VA
+    and AK produce a zero intersection at 2018→2019 with no boundary change. The
+    per-county limb needs a row floor, and the floor is a threshold. §M1.2b.
+28. **The MSA map's boundaries were set by measurement.** §M2.3 said the MSA limb
+    "holds at 2021→2022", true as a measurement and false as a basis claim. CFPB's
+    *Summary of 2023 Data* states the OMB 2020 definitions "became effective for
+    HMDA purposes in 2022". The one instrument this document proves cannot see a
+    basis change was used to locate one. §M2.3.
+29. **The stray-row mechanism was misattributed.** §M1.2a blamed out-of-state codes
+    in single-state pulls for stray MSA rows in CT 2020; that phenomenon is a
+    2018–2019 artefact (VA out-of-state codes 100 → 13 → 1). The actual cause is
+    intra-record geography disagreement — 3 CT 2020 rows whose `census_tract` names
+    a different county than their `county_code`, which reconcile exactly with the
+    observed strays. §M6.6.
+30. **The `attrs` fix repeated the fault it was correcting.** §M3.3 listed
+    `pd.concat` under "survives" on a single measurement of the matching-attrs
+    case. `.merge()` and `concat` obey one rule on 2.2.3+ — survive iff all operands
+    carry identical attrs — and `concat` is the operation that creates the
+    vintage-spanning frame, where the operands differ by construction. §M3.3.
+31. **§M1.3 and §M2.2 contradicted each other.** §M1.3 raised on an unmapped year
+    for every tract-keyed operation including single-year ones; §M2.2 declared
+    per-year analysis safe. Resolved by the `UNKNOWN` third state. §M1.3.
+32. **Two stale `O-2` references had the document declaring an open release blocker
+    closed.** v1's `O-2` was the unsized contamination; v2's `O-2` is the county/MSA
+    map assignments. §M6.1 and coverage item 6 both pointed at the number.
+33. **The zero-land-area edge case was decided two ways in one code block**, and
+    `1,787` / `44,417` do not reproduce (measured 1,289 / 44,915). §M3.1.
+34. **§M3.2a specified a test that cannot be written.** An end-to-end propagation
+    test needs a guarded function reachable from the report layer; all five
+    geography imports there are dead. §M3.2a.
+
+**And the thing THIS prompt did not know existed: the per-county check does not
+fire on Connecticut at all.** The brief for this revision stated that "every CT
+county prefix changes, so every county is either disjoint-within or vanishing", and
+asked which. Measured, it is *entirely* vanishing — **zero** disjoint-within
+counties — so the per-county disjointness limb contributes nothing to the case it
+was redesigned around. The brief also suggested the vanishing case "may already be
+owned by the county basis map"; it is, but only once the **tract** guard is
+specified to consult that map, which §M2.1 did not say. A redesign that swapped
+frame scope for county scope without that change would have left Connecticut
+2023→2024 unguarded for every tract-keyed operation — a regression introduced by
+the fix for a different hole. §M1.2b.
 
 ---
 
@@ -2276,21 +3064,27 @@ year range — the same move that found Connecticut and Alaska. §M1.3, §O.
 
 **Release blockers for 0.6.0:**
 
-1. **The 2025 entry in all three basis maps needs its citation.** 2025 is already
-   served (§M1.3). The measurements are consistent with 2025 continuing on the
-   2020 tract scheme and the 2023 county/MSA schemes, but §M1.3's own rule is that
-   an entry is a citation, not an inference. The CFPB *Summary of 2025 Data on
-   Mortgage Lending* statement was **not located in this session** — the two URLs
-   tried (`consumerfinance.gov/data-research/hmda/` and the
-   `data-point-2024-…` report slug) returned HTTP 200 with no delineation
-   sentence and HTTP 404 respectively. A human should find it, or find the FFIEC
-   equivalent, before the maps ship.
-2. **The county and MSA basis maps' full year→basis assignments are not yet
-   established year by year.** §M2.3 and §M6.6 establish *where the boundaries
-   are* (county: 2021→2022 and 2023→2024; MSA: 2023→2024) from LAR measurement.
-   Turning those into complete maps with a citation per entry — OMB bulletin
-   numbers and their FFIEC adoption years — is required before the maps are
-   anything more than the measurements restated.
+1. **The county map's full year→basis assignments still need a citation per
+   entry.** §M2.3 and §M6.6 establish *where* the county boundaries are (2021→2022
+   in Alaska; 2023→2024 in Connecticut) from LAR measurement. The MSA map is no
+   longer in this item — v3 gives it citations at both boundaries (CFPB *Summary of
+   2023 Data* for 2022; OMB Bulletin 23-01 for 2024, §M2.3). The county map needs
+   the equivalent: the Census county-equivalent change notices behind the Alaska
+   split and the Connecticut planning regions, with their FFIEC adoption years.
+   Until then the county map is the measurements restated, and it is now
+   **load-bearing for the tract guard** (§M2.1), which raises the cost of leaving
+   it that way.
+
+**Downgraded from a release blocker by this revision:**
+
+2. **The 2025 entry's citation.** Under the v2 draft's rule, a map ending at 2024
+   raised on the current data year on release day, making this a blocker. §M1.3's
+   `UNKNOWN` state removes that: 2025 is simply unmapped, single-year 2025 analysis
+   works, and only pooling 2025 with another year refuses. **The citation is still
+   wanted and still absent** — and the search is now less promising than it looked,
+   because the CFPB *Summary* series stops at 2023 with no 2024 edition, so this may
+   be a discontinued publication rather than a pending one (§M1.3). A human should
+   look for an FFIEC equivalent. It no longer blocks the release.
 
 **Still open, not blocking:**
 
@@ -2301,9 +3095,10 @@ year range — the same move that found Connecticut and Alaska. §M1.3, §O.
 4. **Whether any override should exist at all.** §M3.3 says no for v1 and states
    the minimum bar if a reviewer disagrees.
 5. **The disjointness check's threshold beyond the empty-intersection case.**
-   §M1.2a scopes v1 to zero intersection deliberately. Whether a partial-overlap
-   threshold can be defended — given §M6.4's proof that intermediate Jaccard means
-   the opposite of what intuition says — is a real question with no answer here.
+   §M1.2b scopes v1 to zero intersection *within a county* deliberately. Whether a
+   partial-overlap threshold can be defended — given §M6.4's proof that
+   intermediate Jaccard means the opposite of what intuition says — is a real
+   question with no answer here.
 6. **The 2019→2020 apparent MSA contraction remains unexplained and is
    deliberately not filed.** Large apparent drops appear in every state
    (CT code-set jaccard 0.545 at that boundary, OH 0.357). They trace to the `'0'`
@@ -2312,6 +3107,29 @@ year range — the same move that found Connecticut and Alaska. §M1.3, §O.
    delineation change and not enough to say what it is. **Reopening it needs a data
    question answered first — what the `'0'` sentinel meant and why it stopped —
    not a methodology paragraph.**
+7. **The per-county row floor is a threshold and wants a better argument.**
+   §M1.2b sets it at ten rows per county-year. The measured separation is wide —
+   false positives cap at 4 rows, true positives start at 41 — so any floor in
+   5..41 gives the same verdicts on this sample, and the sample is six states. What
+   the floor costs is a real re-carving in a county with under ten loans in a year.
+   Whether it should instead be expressed as a share of the county's tracts, or
+   dropped in favour of an in-state filter on `state_code`, is unanswered.
+
+8. **Whether the measured limb should ship in 0.6.0 at all.** It has produced zero
+   findings the declarative limbs do not already produce, and five false positives
+   before the floor was added (§M1.2b, coverage item 15). The case for shipping it
+   is that key *replacement* within a county at a non-boundary year is a real
+   possibility that no map covers; the case against is that a check with no
+   demonstrated catch is a maintenance surface and a source of user-visible
+   refusals. This document ships it and records the discomfort rather than
+   resolving it.
+
+9. **Rows with a null geography key are silently dropped from every aggregation.**
+   Connecticut 2024 has 1,173 such rows in `census_tract` and 1,101 in
+   `county_code`; `groupby` and `nunique` drop them by default and no output says
+   so. This is a live, shipped, unrelated defect that the sentinel investigation
+   surfaced (coverage item 17). It is out of scope for this document and should be
+   filed separately.
 
 **Closed by this revision:**
 
@@ -2322,6 +3140,15 @@ year range — the same move that found Connecticut and Alaska. §M1.3, §O.
   Moved, with the packaging evidence in correction 7.
 - ~~Drift between four independent guards.~~ One helper called from N places, plus
   an AST test asserting set equality over the site list. §M2.4.
+- ~~The unmapped-year raise makes 0.6.0 unshippable against a served 2025.~~
+  Resolved by the `UNKNOWN` third state, which also removed a contradiction between
+  §M1.3 and §M2.2. §M1.3.
+- ~~The MSA basis map's boundaries rest on measurement.~~ Both boundaries now carry
+  citations: 2022 from CFPB's *Summary of 2023 Data*, 2024 from OMB Bulletin 23-01.
+  §M2.3.
+- ~~The disjointness check is scoped to the whole frame.~~ Rescoped per county,
+  with the declarative limb extended to the county map — which is what actually
+  covers Connecticut. §M1.2b.
 
 ---
 
@@ -2374,5 +3201,38 @@ truncation anywhere, per coverage item 13.
 | V-12 | CFPB header stability + `'0'` sentinel | header line of each full-state CSV | 99 columns every year **2018–2025**; `derived_msa-md` `'0'` present 2018–2019, absent 2020–2025 |
 | V-13 | Reg C commentary, re-fetched | `consumerfinance.gov/rules-policy/regulations/1003/4/` | Comment 4(a)(9)(ii)(C)-1 confirmed **verbatim**, independently of v1 |
 
-**Next step: scoped re-audit of the changed sections and the new county/MSA
-material. No code until then.**
+| V-2 | ~~pandas durability, three versions~~ **`attrs` row SUPERSEDED by V3-8** | `r4_pandas.py` | The durability items (1, 2, 3, 4, 4b) reproduce on 1.4.4 / 2.2.3 / 3.0.5 and stand. The `attrs` row's "identical across three versions" is **withdrawn** — `.merge()` diverges on 1.4.4. See V3-8 |
+
+**v3 program (2026-08-04).** All commands run from the
+`docs/tract-vintage-methodology` branch at `f2de703`, in scratch virtualenvs
+outside the repo. **No repository code was modified and no `.py` file was
+touched.** Scratch scripts live in the session scratchpad, not in the repo, per
+scope. Data is full-state CFPB Data Browser CSVs — no `limit` truncation anywhere,
+per coverage item 13. **Every key-set measurement below was run both with and
+without the `NA` sentinel**, per §M1.2a.
+
+| # | What | Command | Established |
+|---|---|---|---|
+| V3-1 | The `NA` sentinel, raw CSV | `s1_sentinel.py` (reads via `csv.reader`, so `NA` survives) | Literal `NA` present in `census_tract` **and** `county_code` in **40 of 40** state-years, 6 states, 2018–2025. CT 2023 = 1,001 tract rows, CT 2024 = 1,173 |
+| V3-2 | The sentinel through the **shipped** loader | `s4_ct_real.py` → `load_range(2023,2024,state="CT")` | `read_csv(dtype=str)` coerces `NA`→`NaN`; **literal `'NA'` present: 0**. `set(unique())` → 873/873, **intersection 1**, check does **not** fire; `set(dropna().unique())` → 872/872, intersection 0, fires. `nunique`/`groupby` both drop it |
+| V3-3 | Is the non-firing reliable or accidental? | `s3_nanid.py` on 2.2.3 + 3.0.5 | pandas reuses the `np.nan` singleton across separate `read_csv` calls and across `pd.concat`, so the intersection is reliably `{nan}`. Control: `{float('nan')} & {float('nan')}` = `set()` |
+| V3-4 | The four (five) contaminated figures | `s1_sentinel.py` | CT tract 873/872; VA counties 2018 234/233, 2019 146/145; AK county jaccard 0.738/0.732, 0.811/0.806, **and 0.906/0.903 at 2021→2022, not previously flagged** |
+| V3-5 | Per-county disjointness — firing | `s5_percounty.py`, `s6_ak_detail.py` | **AK 2021→2022: 1 disjoint-within (`02105`), 1 vanishing (`02261`), 2 appearing, 27 held**; statewide intersection 144, so frame-level is silent. **CT 2023→2024: ZERO disjoint-within**, 8 vanishing, 9 appearing. `02105000300` holds 2018–2021 and `02105000400` 2022–2025 — a true positive, not sparsity |
+| V3-6 | Per-county disjointness — non-firing | `s9_spec.py` at `FLOOR=0` and `FLOOR=10` | All 10 cases correct at FLOOR=10. At FLOOR=0, two false positives: VA and AK 2018→2019, **5 out-of-state stray counties**, 1–4 rows each. True positives carry 41–1,032 rows |
+| V3-7 | Does the measured limb earn its place? | `s7_earnsplace.py` | Across **16 same-basis adjacent year-pairs in 6 states**, it fired 5 times — **all false positives**. Across basis-changing pairs it fired on 6 counties, **all already refused declaratively**. Net unique findings: **zero** |
+| V3-8 | `attrs`, four configurations × three versions | `s10_attrs.py` on 1.4.4 / 2.2.3 / 3.0.5 | `.merge()` and `concat` survive **iff all operands carry identical attrs** — on 2.2.3 and 3.0.5. **1.4.4 diverges: `.merge()` never propagates**, even with identical operands. Realistic case (differing basis values) drops attrs on all three. 1.4.4 tested under Python 3.10 with `numpy==1.26.4` |
+| V3-9 | §M4.1 durability block on 1.4.4 | `s15_dur.py` | Items 1, 2, 3, 4, 4b reproduce identically on 1.4.4 — the v2 three-version claim stands for these |
+| V3-10 | 2025 / 2026 and the maturity ladder | `curl` on the package's own endpoint | 2025 → 301 `snapshot`; 2026 → **400**. Ladder: 2018–2022 `three-year`, 2023–2024 `one-year`, 2025 `snapshot` |
+| V3-11 | The CFPB *Summary* series | `curl` per year slug | 2021/2022/2023 → 200; **2024 → 404, 2025 → 404**. The series stops at 2023 (published 2024-07-11) |
+| V3-12 | MSA basis citation | CFPB *Summary of 2023 Data*, fetched 2026-08-04 | Verbatim: "the data reflect metropolitan statistical area (MSA) definitions released by the Office of Management and Budget in 2020 that **became effective for HMDA purposes in 2022**." Also: "The 2023 HMDA data use the census tract delineations … from the 2020 Census" — a **new** tract-map citation the document lacked |
+| V3-13 | OMB Bulletin 23-01 | independent confirmation, 2026-08-04 | Issued **2023-07-21**; updates and supersedes Bulletin 20-01 (2020-03-06); first delineation using 2020 Decennial Census data. Under §M1.1's rule its first LAR year is 2024 |
+| V3-14 | Intra-record geography disagreement | `s5_percounty.py` | **CT 2020: 3 rows** whose `census_tract` names a different county than `county_code` — reconciling exactly with §M6.6's `{'25540': 1}` and `{'25540': 2}` strays. VA 2020: 7 rows. CT 2023/2024, AK 2021: 0 |
+| V3-15 | Zero-land-area tracts and the sliver count | `s11_zeroland.py`, `s13_pin.py`, `s14_sliver.py` | **63** RECARVED 2020 tracts have zero land area; ≥99%-same-ground is **19,377 (41.9%)** excluding them, 19,440 (42.1%) including. Rule-A unfiltered **46,204 reproduces exactly**; filtered is **44,915**, not the stated 44,417, and the filter drops **1,289**, not 1,787 |
+
+**Not reproduced from the v2 revision:** the `1,787` sliver count and the derived
+`44,417` filtered total (measured 1,289 and 44,915); and the `attrs`
+"identical on 1.4.4 / 2.2.3 / 3.0.5" claim, which fails on `.merge()` at 1.4.4.
+Both are immaterial to the conclusions they support and both are corrected in place.
+
+**Next step: targeted verification of §M1.2b's firing behaviour and confirmation
+that the four mechanical fixes landed. Not a fifth audit. No code until then.**
