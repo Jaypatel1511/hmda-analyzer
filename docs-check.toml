@@ -169,12 +169,21 @@ targets = ["README.md", "pyproject.toml", "setup.py"]
 #
 #     This list previously also named "20.7M LAR rows" and "the 42% GEOID
 #     figure". NEITHER IS IN README.md. Both live in
-#     hmdaanalyzer/geography_vintage.py — 20.7M in the GeographyVintageError
-#     scope note, 42% in a module comment. A document whose whole job is to
-#     describe a gate's boundary was describing its own boundary wrongly, which
-#     is the failure mode it exists to prevent one level up. Corrected 0.6.0.
-#     Nothing checks prose numbers in the MODULE docstrings and comments either,
-#     and that is now stated rather than implied by their absence from this list.
+#     hmdaanalyzer/geography_vintage.py, and each appears TWICE there — once in
+#     source prose and once in a string the user is shown:
+#       * 20.7M — the COUNTY_BOUNDARY_SCOPE `#:` comment (:333) and the scope
+#         note inside the GeographyVintageError message (:360).
+#       * 42%   — a function docstring (:589) and the overlap-context line that
+#         message also prints (:631).
+#     A document whose whole job is to describe a gate's boundary was describing
+#     its own boundary wrongly, which is the failure mode it exists to prevent
+#     one level up. Corrected 0.6.0.
+#
+#     Note what that implies and is now stated rather than left to be inferred:
+#     nothing checks prose numbers in module docstrings, `#:` comments, OR
+#     RUNTIME MESSAGE STRINGS. The last is the sharpest gap of the three — a
+#     number in a refusal message is read by a user at the moment they are
+#     deciding what to do, and it ships inside the wheel.
 #   * THRESHOLD VALUES QUOTED IN PROSE -- NOT BY THIS GATE, but covered
 #     elsewhere. The README states DESERT_PERCENTILE_THRESHOLD as 25,
 #     DESERT_DENIAL_RATE_FLOOR as 0.15, MIN_APPLICATIONS_FOR_RATE as 5 and
