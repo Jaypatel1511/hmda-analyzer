@@ -6,7 +6,8 @@ import pandas as pd
 import numpy as np
 from hmdaanalyzer.exceptions import MissingColumnError, UnreachableFlagError
 from hmdaanalyzer.geography_vintage import (
-    DESERT_PERCENTILE_THRESHOLD, DESERT_TRACT_FLOOR, resolve_geography_vintage,
+    DESERT_PERCENTILE_THRESHOLD, DESERT_DENIAL_RATE_FLOOR, DESERT_TRACT_FLOOR,
+    resolve_geography_vintage,
 )
 
 
@@ -124,9 +125,47 @@ def lending_by_county(df: pd.DataFrame, vintage: int = None) -> pd.DataFrame:
 
 def lending_desert_score(df: pd.DataFrame, vintage: int = None) -> pd.DataFrame:
     """
-    Identify census tracts with abnormally low application volumes.
-    A 'lending desert' is a tract with very few mortgage applications
-    relative to its expected volume based on housing units.
+    Score census tracts on low application volume combined with high denial rate.
+
+    **What this actually computes** — stated exactly, because the previous
+    docstring described a different function. It claimed a tract was scored
+    "relative to its expected volume based on housing units". No housing-unit
+    figure is read anywhere in this function, in ``lending_by_tract``, or in the
+    package: ``tract_owner_occupied_units`` and
+    ``tract_one_to_four_family_homes`` arrive in the LAR and are never used.
+    There is no expected volume and no denominator. The description was
+    aspirational and a reader who trusted it would have believed the score was
+    normalised for tract size when it is not.
+
+    Two distinct outputs, and they do not use the same rule:
+
+    ``desert_score`` — a weighted composite on a 0–100 scale::
+
+        desert_score = (100 - app_percentile) * 0.6 + denial_rate * 100 * 0.4
+
+    60% low-volume, 40% high-denial. The weights are a **presentation choice
+    for ranking**, not a calibrated or validated instrument: nothing was fitted,
+    and no threshold on ``desert_score`` means anything. Use it to sort, not to
+    decide.
+
+    ``is_lending_desert`` — a boolean, and NOT a cut on ``desert_score``::
+
+        is_lending_desert = (app_percentile < DESERT_PERCENTILE_THRESHOLD)
+                            & (denial_rate > 0.15)
+
+    Both conditions must hold. A tract can therefore carry a very high
+    ``desert_score`` and still be ``False`` — a high score driven mostly by
+    denial rate with volume above the percentile cut is the common case. Sorting
+    by ``desert_score`` and reading the top rows as "the deserts" is wrong.
+
+    ``app_percentile`` is a percentile **within the frame you passed**, not a
+    national one: the same tract scores differently depending on what else is in
+    the frame. That is also why the vintage guard matters here more than
+    anywhere else (see Raises).
+
+    The 0.15 denial-rate floor is a bare literal at the comparison site and is
+    unvalidated — it is not a CFPB threshold and is unrelated to the disparity
+    thresholds in ``schema.DISPARITY_THRESHOLDS``.
 
     Args:
         df: Cleaned HMDA LAR DataFrame.
@@ -205,13 +244,17 @@ def lending_desert_score(df: pd.DataFrame, vintage: int = None) -> pd.DataFrame:
         tract_df["denial_rate"] * 100 * 0.4
     ).round(1)
 
-    # The threshold is imported, not written here. It is the number
-    # DESERT_TRACT_FLOOR is derived from, and when it was a literal at this line
-    # the two could — and in a demonstrated injection did — drift apart while
-    # every test stayed green (§M3.3a).
+    # Both thresholds are imported, not written here. The percentile one is the
+    # number DESERT_TRACT_FLOOR is derived from, and when it was a literal at
+    # this line the two could — and in a demonstrated injection did — drift
+    # apart while every test stayed green (§M3.3a). The denial-rate floor was
+    # still a literal here through 0.5.0 and is named for the same reason.
+    #
+    # NOTE the conjunction: is_lending_desert is NOT a cut on desert_score. A
+    # tract can rank at the top by desert_score and be False here.
     tract_df["is_lending_desert"] = (
         (tract_df["app_percentile"] < DESERT_PERCENTILE_THRESHOLD) &
-        (tract_df["denial_rate"] > 0.15)
+        (tract_df["denial_rate"] > DESERT_DENIAL_RATE_FLOOR)
     )
 
     return tract_df.sort_values("desert_score", ascending=False)

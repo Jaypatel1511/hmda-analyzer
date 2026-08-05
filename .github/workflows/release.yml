@@ -353,16 +353,25 @@ jobs:
           #
           # FLOOR DERIVATION -- not a number picked to be safe. The rule is
           # HALF of what the suite genuinely runs today, rounded down to a
-          # round number. Measured on this tarball: 114 tests executed under
-          # this job's exact invocation. Half is 57, so the floor is 55.
+          # round number. Measured on the 0.6.0 tarball: 247 tests executed
+          # under this job's exact invocation. Half is 123.5, so the floor
+          # is 120.
+          #
+          # RE-DERIVED AT 0.6.0, and the re-derivation is the point. The floor
+          # was 55, correct when the suite ran 114. The suite now runs 247, so
+          # 55 had silently decayed to about a fifth -- still green, still
+          # "passing", and no longer the check its own comment describes. A
+          # constant whose stated rule no longer produces it is a comment that
+          # lies, which is the same defect class as a gate that cannot fail.
+          # If the suite grows again, re-derive again.
           #
           # Half, deliberately: the rejected `-lt 14` threshold sat at the
           # exact count shipping that day, so deleting one test module failed
           # the job with a packaging error for a deliberate source change.
-          # This one has ~59 tests of headroom -- you would have to delete more
-          # than half the suite before it complains, while total deselection
-          # lands at 0 and trips it immediately.
-          FLOOR=55
+          # This one has ~127 tests of headroom -- you would have to delete
+          # more than half the suite before it complains, while total
+          # deselection lands at 0 and trips it immediately.
+          FLOOR=120
           EXECUTED="$(python - "${RUNNER_TEMP}/sdist-junit.xml" <<'PY'
           import sys, xml.etree.ElementTree as ET
           root = ET.parse(sys.argv[1]).getroot()
@@ -383,10 +392,69 @@ jobs:
             exit 1
           fi
 
-  # ── Step 4: Publish to PyPI — only after guard + build + all tests pass ───
+  # ── Step 3c: docs-check — does the README describe the artifact being shipped?
+  #
+  # Runs against the installed WHEEL, from a directory containing neither
+  # ./hmdaanalyzer nor ./hmda_analyzer — the same rule as every other gate here,
+  # for the same reason. It also runs on every PR (see test.yml); this copy is
+  # the one that can block a publish.
+  #
+  # The dist artifact is named `dist-wheel` in this repo (it carries the sdist
+  # too, despite the name) — not `dist`, as in nmtc-mapper. Copying that job
+  # across verbatim downloads nothing and fails at `ls dist/*.whl`.
+  docs-check:
+    name: docs-check (README vs installed wheel)
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Python 3.12
+        # 3.12 for tomllib, which docs_check.py uses to read docs-check.toml.
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: dist-wheel
+          path: dist/
+
+      - name: Run docs-check against the installed wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "${RUNNER_TEMP}/docs-venv"
+          VPY="${RUNNER_TEMP}/docs-venv/bin/python"
+          "${VPY}" -m pip install --upgrade pip
+          "${VPY}" -m pip install "$(ls dist/*.whl)" pytest
+
+          DOCSDIR="${RUNNER_TEMP}/docs-check"
+          mkdir -p "${DOCSDIR}/docs"
+          cp -R tests "${DOCSDIR}/tests"
+          cp -R tools "${DOCSDIR}/tools"
+          if [ -d docs/README.expected ]; then
+            cp -R docs/README.expected "${DOCSDIR}/docs/README.expected"
+          fi
+          cp README.md pyproject.toml docs-check.toml \
+             docs-check-denylist.txt "${DOCSDIR}/"
+          if [ -f setup.py ]; then
+            cp setup.py "${DOCSDIR}/"
+          fi
+          cd "${DOCSDIR}"
+
+          "${VPY}" tools/docs_check.py --root .
+
+  # ── Step 4: Publish to PyPI — only after guard + build + all tests + docs ──
+  #
+  # docs-check is in `needs`, so a README that misdescribes the artifact blocks
+  # the upload. Listing it here is the whole point of the port: a gate that runs
+  # but does not gate is a report, not a control.
   publish:
     name: Publish to PyPI
-    needs: [verify-version, build, test-wheel, test-sdist]
+    needs: [verify-version, build, test-wheel, test-sdist, docs-check]
     runs-on: ubuntu-latest
     environment:
       name: pypi

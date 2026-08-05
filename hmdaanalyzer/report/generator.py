@@ -31,8 +31,9 @@ enforcement the aggregation sites get.
 """
 import pandas as pd
 from hmdaanalyzer.exceptions import (
-    MissingColumnError, ReferenceGroupError, _require_columns,
+    MissingColumnError, ReferenceGroupError, _require_columns, _require_numeric,
 )
+from hmdaanalyzer.data.schema import MIN_APPLICATIONS_FOR_RATE
 
 from hmdaanalyzer.analysis.disparity import (
     denial_rate_by_race, disparity_ratio, denial_rate_by_income_band
@@ -50,6 +51,30 @@ from hmdaanalyzer.analysis.lender import lender_summary, lender_vs_market
 #: swallowing this inversion removes.
 RENDERABLE_ERRORS = (KeyError, IndexError, ZeroDivisionError, TypeError,
                      ArithmeticError, AttributeError, ReferenceGroupError)
+
+
+def _suppression_note(rates: pd.DataFrame) -> list:
+    """Markdown lines naming the small-N suppression, or ``[]`` if none fired.
+
+    Reads the provenance columns ``denial_rate_by_race`` attaches rather than
+    re-deriving the threshold, so the report can never disagree with the
+    function about what was removed.
+    """
+    if rates.empty or "suppressed_groups" not in rates.columns:
+        return []
+    n = int(rates["suppressed_groups"].iloc[0])
+    if n == 0:
+        return []
+    apps = int(rates["suppressed_applications"].iloc[0])
+    names = str(rates["suppressed_group_names"].iloc[0])
+    return [
+        "",
+        f"> **Small-N suppression fired.** {n} race/ethnicity group(s) holding "
+        f"{apps:,} actionable application(s) are ABSENT from the table above: "
+        f"{names}. They fall below the {MIN_APPLICATIONS_FOR_RATE}-application "
+        f"minimum, where a denial rate can only take the values 0/25/50/75/100%. "
+        f"Their absence is a suppression, NOT a finding of no disparity.",
+    ]
 
 
 def generate_disparity_report(
@@ -75,6 +100,15 @@ def generate_disparity_report(
         ["action_taken", "derived_race", "is_denied", "income"],
         "generate_disparity_report",
     )
+    # A present-but-wrong-dtype income is the same class of precondition failure
+    # as an absent one, and it must be caught HERE rather than three sections in.
+    # Before this, a datetime64 income reached pd.cut inside the income-band
+    # section, which raised a BARE ValueError — not in RENDERABLE_ERRORS, so it
+    # escaped and destroyed the whole report, including the four sections that
+    # never touch income. The cure is validating the input, not widening the
+    # allowlist: ValueError is GeographyVintageError's base class, so catching it
+    # would typeset a vintage refusal into a table cell again (§M3.2a).
+    _require_numeric(df, "income", "generate_disparity_report")
 
     if lei is not None:
         if "lei" not in df.columns:
@@ -132,6 +166,12 @@ def generate_disparity_report(
                 f"| {row['derived_race']} | {row['applications']:,} | "
                 f"{int(row['denials']):,} | {row['denial_rate']*100:.1f}% |"
             )
+        # Small-N suppression is stated in the report, not only on the frame.
+        # A reader of the rendered markdown never sees the columns, and a race
+        # group missing from this table is otherwise indistinguishable from a
+        # group with no disparity — which is the failure the whole package is
+        # built around. Rendered only when it actually fired.
+        lines.extend(_suppression_note(rates))
     except RENDERABLE_ERRORS as e:
         lines.append(f"| Error computing denial rates: {e} |")
 

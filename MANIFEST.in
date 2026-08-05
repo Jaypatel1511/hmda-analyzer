@@ -38,6 +38,13 @@ include pyproject.toml
 # it in the tarball, a test-sdist run emits PytestUnknownMarkWarning and
 # --strict-markers turns that into a collection error.
 
+# The docs-check gate ships inside the sdist too, so the tarball carries
+# everything needed to re-run the gate that certified it. Matches nmtc-mapper.
+include docs-check.toml
+include docs-check-denylist.txt
+recursive-include tools *.py
+recursive-include docs/README.expected *.txt
+
 # examples/ is intentionally NOT shipped — the demo notebook is a repo artifact,
 # not part of the distributed package.
 prune examples

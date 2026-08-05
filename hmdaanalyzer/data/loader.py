@@ -3,29 +3,22 @@ Load HMDA LAR data from CFPB Data Browser API or local CSV.
 Free public API — no authentication required.
 """
 import io
-import os
 import datetime
 import requests
 import pandas as pd
-from pathlib import Path
 from hmdaanalyzer._http import fetch, CFPBAPIError
 from hmdaanalyzer.exceptions import SchemaValidationError, ActivityYearMismatchError
 from hmdaanalyzer.data.schema import (
-    HMDA_API_BASE, CACHE_DIR, ACTION_TAKEN,
+    HMDA_API_BASE, ACTION_TAKEN, API_ACTIONS_TAKEN,
     APPROVED_ACTIONS, DENIED_ACTIONS,
     RACE_CODES, ETHNICITY_CODES, LOAN_PURPOSE, LOAN_TYPE,
     EARLIEST_HMDA_YEAR, EXPECTED_LAR_COLUMNS,
     RAW_LAR_COLUMNS, DERIVED_LAR_COLUMNS,
+    TRUNCATED_COLUMN,
 )
 from hmdaanalyzer.geography_vintage import (
     TRACT_GEOID_BASIS_BY_YEAR, VINTAGE_COLUMN,
 )
-
-
-def get_cache_dir() -> Path:
-    path = Path(CACHE_DIR)
-    path.mkdir(parents=True, exist_ok=True)
-    return path
 
 
 def load_from_api(
@@ -42,22 +35,47 @@ def load_from_api(
     The ``limit`` parameter streams and stops at that many rows so you don't
     have to download an entire multi-hundred-thousand-record state file.
 
+    ``limit`` TRUNCATES; it does not sample.
+        The rows you get back are the FIRST ``limit`` rows the server emitted,
+        in the file's own order. That order is not random with respect to
+        lender, geography, race, or outcome, so a denial rate computed on a
+        truncated pull describes an arbitrary slice of the state while looking
+        exactly like a statistic about the state. When the stream was cut short
+        every returned row carries ``limit_truncated = True``; when the whole
+        file fit under ``limit`` every row carries ``False``. Check that column
+        before quoting any number from the frame, and raise ``limit`` (or filter
+        by ``county=``) until it reads ``False`` if you need the population.
+
+    **Purchased loans are not fetched.** The query asks for
+    ``actions_taken=1,2,3,4,5`` (:data:`~hmdaanalyzer.data.schema.API_ACTIONS_TAKEN`);
+    action 6, "Purchased loan", is absent, so no frame from this function
+    contains one. ``cra_proxy_distribution(..., include_purchased=True)``
+    therefore has nothing to select on such a frame and returns an empty
+    purchased cut. Use :func:`load_from_file` with a CSV that includes action 6
+    if you need that universe.
+
     Args:
         year:   Data year e.g. 2023
         state:  Two-letter state code e.g. "IL"
         lei:    Lender LEI identifier
         county: County FIPS code e.g. "17031"
-        limit:  Maximum number of records to return (default 10,000)
+        limit:  Maximum number of records to return (default 10,000). This is a
+                truncation point, not a sample size — see above.
 
     Returns:
-        Clean pandas DataFrame with standardized columns.
+        Clean pandas DataFrame with standardized columns, carrying a
+        ``limit_truncated`` provenance column.
 
     Raises:
         RuntimeError: If the API returns an HTTP error, times out, or fails.
     """
     params = {
         "years": year,
-        "actions_taken": "1,2,3,4,5",
+        # Named constant, not a literal: action 6 ("Purchased loan") is absent
+        # here and that absence is what makes cra_proxy_distribution's
+        # include_purchased flag inert on frames from this function. A literal
+        # gives a reader nothing to grep for. See API_ACTIONS_TAKEN.
+        "actions_taken": ",".join(str(a) for a in API_ACTIONS_TAKEN),
     }
     if state:
         params["states"] = state.upper()
@@ -79,15 +97,30 @@ def load_from_api(
         # The CFPB API ignores a row-count query parameter — it returns the full
         # state/county file. Stream line-by-line and stop at limit rows so we
         # don't download hundreds of thousands of records the caller didn't ask for.
+        #
+        # `truncated` records whether we stopped early or the file simply ended.
+        # The distinction is the whole point: a frame of exactly `limit` rows is
+        # ambiguous from the outside — it may be a complete small state or the
+        # first slice of a large one — and the caller cannot recover which after
+        # the fact. We know here, so we record it here.
         lines = []
+        truncated = False
         for i, line in enumerate(resp.iter_lines(decode_unicode=True)):
             if i > limit:   # row 0 is the header; stop before appending row limit+1
+                truncated = True
                 break
             lines.append(line)
 
         df = pd.read_csv(io.StringIO("\n".join(lines)), dtype=str, low_memory=False)
-        print(f"Loaded {len(df):,} LAR records")
-        return _clean(df)
+        if truncated:
+            print(
+                f"Loaded {len(df):,} LAR records — TRUNCATED at limit={limit:,}. "
+                f"These are the first {limit:,} rows in server file order, not a "
+                f"sample; every row carries {TRUNCATED_COLUMN}=True."
+            )
+        else:
+            print(f"Loaded {len(df):,} LAR records (complete — limit not reached)")
+        return _clean(df, truncated=truncated)
 
     except requests.Timeout:
         raise RuntimeError(
@@ -203,6 +236,13 @@ def load_range(
         :class:`~hmdaanalyzer.ActivityYearMismatchError`.
       * **Legitimate empty.** A valid year that simply matches zero rows is NOT an
         error — its correctly-columned empty frame participates in the concat.
+      * **Truncation is per year and is recorded per row.** ``limit`` applies to
+        each year's fetch independently, so a range can be complete in one year
+        and truncated in another. ``limit_truncated`` is therefore NOT uniform
+        across the returned frame — check it per year
+        (``df.groupby("activity_year")["limit_truncated"].any()``) rather than
+        once for the whole thing. A year-over-year comparison in which one year
+        was truncated and another was not is comparing a slice to a population.
 
     Args:
         start_year: First year (inclusive). int, ``2018 <= start_year``.
@@ -364,12 +404,18 @@ def load_sample(n: int = 5000, seed: int = 42) -> pd.DataFrame:
     return _clean(df)
 
 
-def _clean(df: pd.DataFrame) -> pd.DataFrame:
+def _clean(df: pd.DataFrame, truncated: bool = False) -> pd.DataFrame:
     """Standardize and clean a raw HMDA LAR DataFrame.
 
     The CFPB Data Browser CSV names enumerated fields with hyphens
     (e.g. ``denial_reason-1``, ``applicant_race-1``). We normalize those to
     underscores so downstream code can address them by a single canonical name.
+
+    Args:
+        truncated: Whether the caller's stream stopped at ``limit`` before the
+            source ran out. Written onto every row as ``limit_truncated``. Only
+            :func:`load_from_api` can know this — a local file and the synthetic
+            sample are complete by construction, so both leave it ``False``.
     """
     df.columns = df.columns.str.lower().str.strip().str.replace("-", "_", regex=False)
 
@@ -387,6 +433,13 @@ def _clean(df: pd.DataFrame) -> pd.DataFrame:
     if "action_taken" in df.columns:
         df["is_approved"] = df["action_taken"].isin(APPROVED_ACTIONS)
         df["is_denied"] = df["action_taken"].isin(DENIED_ACTIONS)
+
+    # Truncation provenance, written unconditionally — including when it is
+    # False. A column that appears only on truncated frames would signal by its
+    # own ABSENCE, and an absence is unreadable in the artefact: a consumer
+    # cannot tell a complete pull from a frame produced before the column
+    # existed. Same argument as the vintage STATUS columns (§M4.1).
+    df[TRUNCATED_COLUMN] = bool(truncated)
 
     # Census-tract GEOID delineation basis, as PROVENANCE. Derived from
     # activity_year so a human — and a downstream consumer — can *see* which

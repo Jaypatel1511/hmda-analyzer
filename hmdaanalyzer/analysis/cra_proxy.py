@@ -99,6 +99,26 @@ _DIFFERING_DENOM_CAVEAT = (
     "borrower denominator but carry a valid tract) — do NOT difference the two LMI%s."
 )
 
+#: Bound to a ``universe="purchased"`` table that selected zero rows.
+#:
+#: Without it the table is a fabricated empty: zero denominator, four zero
+#: counts, an empty ``excluded`` tally, and nothing anywhere saying whether the
+#: institution purchased no loans or the loans were never fetched. Those are
+#: opposite facts with one representation. ``load_from_api`` asks the CFPB
+#: Data Browser for ``actions_taken=1,2,3,4,5``, so action 6 is absent from
+#: every frame it and ``load_range`` produce, and this is the overwhelmingly
+#: likely cause.
+_EMPTY_PURCHASED_CAVEAT = (
+    "EMPTY PURCHASED CUT — this table has a zero denominator because the frame "
+    "contains no action_taken == 6 rows. This is NOT evidence that no loans were "
+    "purchased. Frames from load_from_api()/load_range() can never contain a "
+    "purchased loan: the CFPB query requests actions_taken=1,2,3,4,5 "
+    "(hmdaanalyzer.data.schema.API_ACTIONS_TAKEN) and action 6 is not among them. "
+    "To analyse purchased loans, supply a frame that contains them — e.g. "
+    "load_from_file() on a CSV exported with action 6 included. Do not read the "
+    "zeros below as a distribution."
+)
+
 
 @dataclass
 class CraProxyTable:
@@ -211,7 +231,7 @@ def _classify_borrower(income: pd.Series, area_median: pd.Series):
     return cat, reason
 
 
-def _build_table(dimension, universe, year, cat, reason, *, both):
+def _build_table(dimension, universe, year, cat, reason, *, both, empty_purchased=False):
     classified_mask = cat != "Unknown"
     denom = int(classified_mask.sum())
     counts = {c: int((cat == c).sum()) for c in _CATEGORIES}
@@ -239,6 +259,8 @@ def _build_table(dimension, universe, year, cat, reason, *, both):
         caveat += "\n" + _BORROWER_BIAS_CAVEAT
     if both:
         caveat += "\n" + _DIFFERING_DENOM_CAVEAT
+    if empty_purchased:
+        caveat += "\n" + _EMPTY_PURCHASED_CAVEAT
 
     # Bind the caveat to the frame too (defence in depth); the column name is the
     # primary, copy-proof binding.
@@ -275,6 +297,18 @@ def cra_proxy_distribution(
         include_purchased: If True, adds purchased loans (``action_taken == 6``)
             as a SEPARATE, labeled ``universe="purchased"`` cut — never blended
             into the originations distribution.
+
+            **Inert on frames from this package's own loaders.**
+            ``load_from_api`` and ``load_range`` query the CFPB Data Browser
+            with ``actions_taken=1,2,3,4,5``
+            (:data:`~hmdaanalyzer.data.schema.API_ACTIONS_TAKEN`), and
+            ``load_sample`` generates only actions 1, 3 and 4 — so none of the
+            three can produce an ``action_taken == 6`` row and this flag has
+            nothing to select. The resulting empty table carries an explicit
+            caveat saying so rather than presenting four zeros as a
+            distribution. The flag is fully functional on a frame that does
+            contain purchased loans, which today means one supplied through
+            :func:`~hmdaanalyzer.load_from_file`.
         year_column: Provenance year column. If the frame carries ≥2 distinct
             years, distributions are produced PER YEAR (each year's own annual
             ``ffiec_msa_md_median_family_income`` is applied, since classification
@@ -350,7 +384,12 @@ def cra_proxy_distribution(
                         sub["income"], sub["ffiec_msa_md_median_family_income"]
                     )
                 tables.append(
-                    _build_table(dim, universe, year, cat, reason, both=both)
+                    _build_table(
+                        dim, universe, year, cat, reason, both=both,
+                        # A purchased cut that selected nothing is ambiguous
+                        # from the outside and must say so on the table itself.
+                        empty_purchased=(universe == "purchased" and len(sub) == 0),
+                    )
                 )
 
     return CraProxyDistribution(

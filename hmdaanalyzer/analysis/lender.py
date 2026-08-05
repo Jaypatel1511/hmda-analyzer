@@ -104,26 +104,43 @@ def lender_vs_market(
         lei: Lender LEI to compare
 
     Returns:
-        DataFrame showing lender vs market denial rates by race
+        DataFrame showing lender vs market denial rates by race.
+
+        **Small-N suppression is reported for BOTH sides, separately.** The two
+        frames are suppressed independently — a group can clear the
+        ``MIN_APPLICATIONS_FOR_RATE`` minimum market-wide and fall below it for
+        one lender, which is the normal case and the one that matters here: a
+        row absent from this table is usually absent because the *lender* had
+        too few applications, not because the group is unremarkable. Columns are
+        prefixed ``lender_`` and ``market_`` so neither can be read as the
+        other. An unprefixed ``suppressed_*`` column here would have inherited
+        the lender's numbers under a name that reads as the table's.
     """
     _require_columns(df, ["lei"], "lender_vs_market")
     lender_df = df[df["lei"] == lei]
 
+    _SUPPRESSION = ("suppressed_groups", "suppressed_applications",
+                    "suppressed_group_names")
+
     lender_rates = denial_rate_by_race(lender_df).rename(
         columns={"denial_rate": "lender_denial_rate",
                  "applications": "lender_applications",
-                 "denials": "lender_denials"}
+                 "denials": "lender_denials",
+                 **{c: f"lender_{c}" for c in _SUPPRESSION}}
     )
 
     market_rates = denial_rate_by_race(df).rename(
         columns={"denial_rate": "market_denial_rate",
                  "applications": "market_applications",
-                 "denials": "market_denials"}
+                 "denials": "market_denials",
+                 **{c: f"market_{c}" for c in _SUPPRESSION}}
     )
 
+    market_cols = ["derived_race", "market_denial_rate"] + [
+        f"market_{c}" for c in _SUPPRESSION
+    ]
     result = lender_rates.merge(
-        market_rates[["derived_race", "market_denial_rate"]],
-        on="derived_race", how="left"
+        market_rates[market_cols], on="derived_race", how="left"
     )
 
     result["vs_market"] = (

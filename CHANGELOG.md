@@ -1,6 +1,33 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.6.0] - 2026-08-05
+
+### UPGRADING FROM 0.5.0 — READ THIS FIRST
+
+**Calls that used to return a number now raise.** If you upgrade and something
+throws, this section is why. Every new refusal subclasses `ValueError`, so an
+existing `except ValueError` still catches it — which means a broad handler will
+turn a refusal into whatever your fallback path does. Check your handlers.
+
+| If you were doing this | You now get | Do this instead |
+|---|---|---|
+| `lending_by_tract(df)` where `df` pools 2021 with 2022 | `GeographyVintageError` | The tract delineation changed at that boundary; the same GEOID means different ground. Split at the boundary and present two panels, or narrow: `lending_by_tract(df, vintage=2010)` / `vintage=2020`. |
+| `lending_by_county(df)` where `df` pools 2023 with 2024 | `GeographyVintageError` | Connecticut replaced eight counties with nine planning regions. Either `df[df["state_code"] != "CT"]` and re-run — every other key is unchanged — or split at the boundary. |
+| Any guarded aggregation pooling 2024 or 2025 with another year | `GeographyVintageError` | 2024 and 2025 are **UNKNOWN**: no cited basis exists for them yet. A single-year 2024 or 2025 analysis still works and is *not* refused. Pooling needs a human to read the FFIEC census file vintage and add a cited entry. |
+| `lending_desert_score(df)` on a frame with ≤ 4 tracts | `UnreachableFlagError` | `is_lending_desert` cannot be `True` below 5 tracts, so the old all-`False` output was a fabricated negative. Use `lending_by_tract(df)` for the underlying counts, or widen the frame. |
+| `lending_desert_score(df, vintage=…)` that narrows below 5 tracts | `UnreachableFlagError` | Same. The floor is checked **after** narrowing, deliberately. |
+| `lending_by_tract(df, vintage=2020)` where no year in `df` uses basis 2020 | `GeographyVintageError` | The narrowing selected zero rows. That is a malformed question, not a finding — the answer is not "nothing here". The message names the bases the frame actually contains. |
+| `disparity_ratio(df, reference=…)` with an absent reference group | `ReferenceGroupError` (was a bare `ValueError`) | Unchanged behaviour, now typed. `except ValueError` still works. |
+| `generate_disparity_report(df)` on a vintage-spanning frame | The refusal **propagates** | It used to be typeset into a markdown table cell, producing a report that looked complete with a refusal inside it. A report that fails to generate is the correct outcome. |
+| `generate_disparity_report(df)` with a non-numeric `income` | `MissingColumnError`, raised up front | Previously `pd.cut` raised a bare `ValueError` mid-render that destroyed the whole report. Coerce: `df["income"] = pd.to_numeric(df["income"], errors="coerce")`. |
+| Reading `denial_rate_by_race(df)` output | Three extra columns | `suppressed_groups`, `suppressed_applications`, `suppressed_group_names`. The n≥5 suppression is unchanged; it is no longer silent. Code selecting columns by position should select by name. |
+| `lender_vs_market(df, lei)` output | Suppression columns are prefixed | `lender_suppressed_*` and `market_suppressed_*`. |
+| Reading a `load_from_api` frame | One extra column | `limit_truncated`. |
+| `from hmdaanalyzer.data.schema import CACHE_DIR` | `ImportError` | Removed with `loader.get_cache_dir()`. Neither was ever called and no cache was ever written. |
+
+**Nothing that was correct before is refused now.** A single-year frame, a frame
+whose years share a basis, and a frame with no `activity_year` column at all are
+all unaffected.
 
 ### Added — the census-geography vintage rule
 
@@ -72,10 +99,131 @@
   FR Doc. 2022-12063 for Connecticut; Census *Substantial Changes* for Alaska),
   closing the methodology's last release blocker.
 
+### Fixed — the pre-existing backlog
+
+Six independent defects found in the August 2 portfolio README-gap audit and the
+recon, each re-verified against current code before being touched.
+
+- **`limit` truncates; it does not sample — and the frame now says so.**
+  `load_from_api` returns the first `limit` rows in the server's file order,
+  which is not random with respect to lender, geography, race or outcome. Every
+  returned row now carries **`limit_truncated`** (`True`/`False`), written even
+  when `False` so that absence is never the signal. Under `load_range` the flag
+  is per year, because a range can be complete in one year and truncated in
+  another. The loader also prints a distinct line for a truncated fetch.
+- **Small-N suppression is no longer silent.** `denial_rate_by_race` has always
+  dropped `derived_race` groups with fewer than five actionable applications;
+  the threshold is now the named constant `MIN_APPLICATIONS_FOR_RATE` and the
+  output carries `suppressed_groups`, `suppressed_applications` and
+  `suppressed_group_names`. `generate_disparity_report` renders an explicit note
+  when it fires. Measured on `load_sample(n=60)`: eight race groups enter, three
+  come out, and five protected classes previously vanished with no signal
+  anywhere. **The threshold is unchanged** — moving it would silently change
+  every number this package has ever produced. Not applied at tract level;
+  that is a disclosure-methodology decision this release deliberately does not
+  make.
+- **`include_purchased` is documented as inert on frames this package loads.**
+  `load_from_api`/`load_range` query the CFPB Data Browser with
+  `actions_taken=1,2,3,4,5` (now the named constant `API_ACTIONS_TAKEN`) and
+  `load_sample` generates only actions 1, 3 and 4, so no loader here can produce
+  an `action_taken == 6` row. `cra_proxy_distribution(..., include_purchased=True)`
+  therefore selected nothing and returned a zero-denominator table with four zero
+  counts — indistinguishable from "this institution purchased no LMI loans". That
+  table now carries an explicit `EMPTY PURCHASED CUT` caveat naming the cause.
+  The default action set is deliberately **not** widened: that would change the
+  denominator of every analysis in the package to fix a flag on one function.
+- **`lending_desert_score`'s documentation matches its behaviour.** The docstring
+  claimed a tract was scored "relative to its expected volume based on housing
+  units". No housing-unit figure is read anywhere in the package —
+  `tract_owner_occupied_units` and `tract_one_to_four_family_homes` arrive in the
+  LAR and are never used. The docstring and README now state both rules exactly:
+  `desert_score` is a 0.6/0.4 weighted composite for *ranking*, and
+  `is_lending_desert` is a *conjunction* of a percentile cut and a denial-rate
+  floor — **not** a threshold on `desert_score`, so a tract can top the ranking
+  and still be `False`. The denial-rate floor is now the named constant
+  `DESERT_DENIAL_RATE_FLOOR` (0.15) rather than a bare literal at the comparison
+  site, matching what was already done for `DESERT_PERCENTILE_THRESHOLD`. It is
+  recorded as unvalidated: it is not a CFPB threshold. No behaviour changed.
+- **A non-numeric `income` no longer destroys the whole report.** `pd.cut` raised
+  a bare `ValueError` on e.g. a `datetime64` income column; since the report
+  layer's allowlist is inverted (correctly), that escaped and killed every
+  section, including the four that never touch income. Fixed at the **input**:
+  `denial_rate_by_income_band` and `generate_disparity_report` both validate the
+  dtype through a shared `_require_numeric` helper and raise `MissingColumnError`
+  naming the column and the fix. **`RENDERABLE_ERRORS` was deliberately not
+  widened** — `ValueError` is `GeographyVintageError`'s base class, so admitting
+  it would restore exactly the swallowing this release removed.
+- **`CACHE_DIR` and `loader.get_cache_dir()` are removed.** Neither was called
+  anywhere in the package or the suite, and no byte was ever written to that
+  path. A name promising a cache that does not exist gets planned around.
+
+### Added — release infrastructure
+
+- **`docs-check`** (`tools/docs_check.py`, `docs-check.toml`,
+  `docs-check-denylist.txt`), ported byte-identical from nmtc-mapper `5a4728a`.
+  Six assertions against the **installed wheel**, run from a directory
+  containing no package source: executed README blocks match committed output ·
+  every symbol the README names is importable · the test count matches
+  collection · no retired claim survives in prose or metadata · the artifact
+  tested is the artifact built · every name in `__all__` appears in the README.
+  It runs on every PR (`.github/workflows/test.yml`) and again in `release.yml`,
+  where **`publish` now depends on it** — a README that misdescribes the
+  artifact blocks the upload.
+
+  Configured with `import_name = ["hmdaanalyzer", "hmda_analyzer"]`, so both
+  documented import paths are vetted rather than one.
+
+  **Assertion 6 found fourteen undocumented exports** out of 32 in `__all__`,
+  including all three of this release's new exceptions — the fail-loud contract
+  was the part the README never named. All fourteen were written up rather than
+  laddered into the known-failures ledger, which is therefore empty. Each of the
+  six assertions was individually verified capable of failing before the config
+  was committed; the probes are recorded in `docs-check.toml`.
+- **`docs/README.expected/`** — committed stdout for the four README blocks
+  marked `run`, including a real `GeographyVintageError` refusal that is now
+  executed on every PR rather than merely described.
+- **`tests/test_backlog_0_6_0.py`** — 32 tests covering the six backlog items.
+  Suite goes from 215 to 247, still with zero skip markers.
+
+### Changed — packaging and CI
+
+- **Version is 0.6.0.** `pyproject.toml` is the single source of truth;
+  `hmdaanalyzer.__version__` derives from installed metadata via
+  `importlib.metadata`, and `release.yml`'s `verify-version` guard compares the
+  git tag against `pyproject.toml` alone. There is no second place to bump.
+- **`authors` metadata added** to `pyproject.toml`. It was absent through 0.5.0,
+  so every published release carried an empty Author field on PyPI.
+- **`test.yml`'s display name is now `CI`**, matching the other four repos in the
+  portfolio. The **filename is unchanged** — GitHub keys run history to an id
+  derived from the file path, so renaming the display name preserves every
+  existing run while renaming the file would orphan them.
+- **`MANIFEST.in`** ships `docs-check.toml`, `docs-check-denylist.txt`, `tools/`
+  and `docs/README.expected/`, so the tarball carries everything needed to re-run
+  the gate that certified it.
+- **`release.yml`'s sdist execution floor re-derived** from 55 to 120. The rule
+  stated in its own comment is "half of what the suite genuinely runs, rounded
+  down to a round number"; the suite has grown from 114 to 247, so 55 had drifted
+  to roughly a fifth and no longer meant what the comment said.
+
 ### Documentation
 
 - `CONTRIBUTING.md` states the supported Python range as **3.11–3.14**, matching
   `requires-python` and both CI matrices (it said 3.9–3.12 in two places).
+- **README rewritten for 0.6.0.** It claimed **86 tests** where the suite now
+  collects 247 — a live false claim, and the one docs-check assertion 3 exists to
+  catch. Beyond the count: the vintage rule, both paths through the 2023→2024
+  refusal, the `vintage=` parameter including that it can narrow to nothing, the
+  five-tract floor, the provenance columns in an output-columns table, a full
+  typed-exception table with a what-to-do column, `limit` truncation, small-N
+  suppression, the real desert-score rules, and `include_purchased`'s inertness
+  are all now documented. Python floor stated as 3.11 with the 3.11–3.14 matrix.
+- **The "no columns are year-conditional" claim is retired as false.** The CFPB
+  *header* is 99 columns in every year 2018–2025 — asserted by the suite — but
+  values are year-conditional: `derived_msa_md` carries a `'0'` sentinel in 2018
+  and 2019 and not later (CT 784 and 705 rows; MI 2,623 and 4,000; zero for both
+  2020–2025). A consumer filtering `!= "0"` gets a test that is meaningful for
+  one year and vacuous for the next, with no schema signal. The README now
+  separates header stability from value stability explicitly.
 
 ## [0.5.0] - 2026-07-06
 

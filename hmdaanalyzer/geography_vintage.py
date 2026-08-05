@@ -431,6 +431,23 @@ VINTAGE_STATUS_COLUMN_BY_KEY: dict[str, str] = {
 #: checks the derivation (§M3.3a).
 DESERT_PERCENTILE_THRESHOLD = 25
 
+#: The denial-rate floor ``is_lending_desert`` ALSO requires. Named in 0.6.0 for
+#: the same reason its sibling above was: it was a bare literal at the
+#: comparison site while the docstring describing the flag was being written
+#: from it, which is how the pair drifts.
+#:
+#: It is deliberately NOT part of ``_derive_desert_floor``. The tract-count floor
+#: is arithmetic on the PERCENTILE threshold alone — ``rank(pct=True)`` bounds
+#: ``app_percentile`` from below and says nothing about denial rates — so this
+#: constant has no derived companion and adding one would assert a relationship
+#: that does not exist.
+#:
+#: UNVALIDATED, and recorded as such. 0.15 is not a CFPB threshold, is unrelated
+#: to ``schema.DISPARITY_THRESHOLDS``, and nothing was fitted to produce it. It
+#: is a shipped default that has never been justified in writing; naming it does
+#: not validate it, it only makes the one place to change it findable.
+DESERT_DENIAL_RATE_FLOOR = 0.15
+
 
 def _derive_desert_floor(threshold: float) -> int:
     """The smallest tract count at which ``is_lending_desert`` can be True.
@@ -924,6 +941,7 @@ __all__ = [
     "BASIS_STATUS_UNKNOWN",
     "BASIS_STATUS_NO_YEAR_COLUMN",
     "DESERT_PERCENTILE_THRESHOLD",
+    "DESERT_DENIAL_RATE_FLOOR",
     "DESERT_TRACT_FLOOR",
     "REG_C_COMMENT",
     "basis_year",

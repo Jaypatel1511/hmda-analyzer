@@ -1,4 +1,10 @@
-name: Tests
+# Display name is CI, matching the other four repos in the portfolio. The FILE
+# stays test.yml deliberately: GitHub keys a workflow's run history to a numeric
+# id derived from the file PATH, so renaming the display name preserves every
+# existing run while renaming the file would mint a new id and orphan them.
+# Nothing is coupled to the old name — no workflow_run: trigger, no badge, no
+# branch-protection required-check references "Tests".
+name: CI
 
 on:
   push:
@@ -6,8 +12,11 @@ on:
   pull_request:
     branches: ["main"]
 
-# Least-privilege default for GITHUB_TOKEN. The test job only checks out and
-# runs the suite, so read access is sufficient.
+# Least-privilege default for GITHUB_TOKEN. `test` checks out and runs the
+# suite; `docs-check` checks out, builds a wheel and diffs the README against
+# it. Neither comments, pushes, uploads, nor publishes, so nothing needs a write
+# scope and nothing needs OIDC. Publishing lives entirely in release.yml, which
+# scopes id-token: write to the publish job alone.
 permissions:
   contents: read
 
@@ -38,3 +47,61 @@ jobs:
         run: |
           python -c "import hmdaanalyzer; print('hmdaanalyzer OK:', hmdaanalyzer.__version__)"
           python -c "import hmda_analyzer; print('hmda_analyzer OK:', hmda_analyzer.__version__)"
+
+  # The README gate, run on every PR rather than only at tag time — a release is
+  # the wrong place to first learn the docs drifted. It builds a wheel and checks
+  # against THAT, from a directory containing neither ./hmdaanalyzer nor
+  # ./hmda_analyzer, because a docs gate that reads the source tree repeats the
+  # defect it exists to catch.
+  docs-check:
+    name: docs-check (README vs built wheel)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Python 3.12
+        # 3.12 for tomllib, which docs_check.py uses to read docs-check.toml.
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Build the wheel
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip build
+          python -m build --wheel
+
+      - name: Run docs-check against the built wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "${RUNNER_TEMP}/docs-venv"
+          VPY="${RUNNER_TEMP}/docs-venv/bin/python"
+          "${VPY}" -m pip install --upgrade pip
+          "${VPY}" -m pip install "$(ls dist/*.whl)" pytest
+
+          DOCSDIR="${RUNNER_TEMP}/docs-check"
+          mkdir -p "${DOCSDIR}/docs"
+          cp -R tests "${DOCSDIR}/tests"
+          cp -R tools "${DOCSDIR}/tools"
+          # docs/README.expected is optional, for the same reason setup.py is: a
+          # repo adopting this gate may have no docs/ directory at all. Copying
+          # it unconditionally under `set -e` ABORTS THE JOB on such a repo,
+          # before the gate ever runs. This repo DOES have one as of 0.6.0, but
+          # the conditional stays so the block remains copyable.
+          if [ -d docs/README.expected ]; then
+            cp -R docs/README.expected "${DOCSDIR}/docs/README.expected"
+          fi
+          cp README.md pyproject.toml docs-check.toml \
+             docs-check-denylist.txt "${DOCSDIR}/"
+          # setup.py is optional: this repo is pyproject-only (single version
+          # source of truth), so copying it unconditionally would make this job a
+          # hard error rather than a file copy. Written as an `if` rather than
+          # `[ -f x ] && cp`, because the && form only survives `set -e` while it
+          # is not the last statement in the step.
+          if [ -f setup.py ]; then
+            cp setup.py "${DOCSDIR}/"
+          fi
+          cd "${DOCSDIR}"
+
+          "${VPY}" tools/docs_check.py --root .

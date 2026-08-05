@@ -23,6 +23,30 @@ APPROVED_ACTIONS = {1, 2, 8}
 DENIED_ACTIONS   = {3, 7}
 WITHDRAWN_ACTIONS = {4, 5}
 
+#: The ``actions_taken`` filter ``load_from_api`` sends to the CFPB Data Browser.
+#:
+#: **6 ("Purchased loan") IS DELIBERATELY ABSENT, AND THAT HAS A CONSEQUENCE THE
+#: API DOES NOT ANNOUNCE.** A frame fetched by :func:`load_from_api` or
+#: :func:`load_range` cannot contain a single ``action_taken == 6`` row, because
+#: the server was never asked for one. ``cra_proxy_distribution``'s
+#: ``include_purchased=True`` selects exactly those rows, so on any frame this
+#: package's own loaders produced it selects nothing and yields a
+#: ``universe="purchased"`` table with a zero denominator, four zero counts and
+#: an EMPTY ``excluded`` tally — a distribution that reads as "this lender
+#: purchased no LMI loans" when the truth is "purchased loans were never
+#: fetched". That is a fabricated empty, and it is why this set is a named
+#: constant the loader docstring and the README both point at rather than a
+#: string literal buried in a query dict.
+#:
+#: The set is NOT widened to include 6 here. Purchased loans are originations
+#: made by someone else and later bought; folding them into the default fetch
+#: would change the denominator of every existing denial-rate, disparity and
+#: tract analysis in the package for every caller, silently, to fix a flag on
+#: one function. A caller who wants them supplies the frame themselves — see
+#: :func:`load_from_file` — and ``include_purchased`` then does exactly what it
+#: says.
+API_ACTIONS_TAKEN = (1, 2, 3, 4, 5)
+
 # ── Race Codes ────────────────────────────────────────────────────────────────
 RACE_CODES = {
     1: "American Indian or Alaska Native",
@@ -179,9 +203,28 @@ RAW_LAR_COLUMNS = frozenset({
 # ``_validate_lar_schema`` subtracts this set before comparing, which is what
 # makes adding a future derived column a non-event instead of a release-breaking
 # one.
+#: Provenance column recording whether ``limit`` cut the fetch short.
+#:
+#: ``load_from_api`` streams the CFPB file and stops at ``limit`` rows. That is
+#: TRUNCATION IN SERVER FILE ORDER, not a sample: the rows kept are the first
+#: ``limit`` the server happened to emit, which is not random with respect to
+#: lender, geography, race or outcome. A denial rate computed on a truncated
+#: pull is a statistic about an arbitrary slice, presented with exactly the
+#: shape of a statistic about the state.
+#:
+#: A print is not a channel — it dies with the session while the number goes on
+#: into a spreadsheet — and a ``warnings.warn`` is shown once per location, so a
+#: notebook re-run is silent. The channel is therefore the returned frame, for
+#: the same reason ``tract_geoid_vintage`` is (§M3.2, §M4.1).
+TRUNCATED_COLUMN = "limit_truncated"
+
 DERIVED_LAR_COLUMNS = frozenset({
     # booleans derived from action_taken
     "is_approved", "is_denied",
+    # whether ``limit`` stopped the stream before the server's file ended.
+    # Derived here, so ``_validate_lar_schema`` subtracts it and a truncated
+    # fetch does not read as CFPB schema drift.
+    "limit_truncated",
     # census-tract GEOID delineation basis, derived from activity_year via
     # hmdaanalyzer.geography_vintage.TRACT_GEOID_BASIS_BY_YEAR. PROVENANCE ONLY —
     # every guard derives the basis from ``activity_year``, never from this
@@ -196,9 +239,13 @@ DERIVED_LAR_COLUMNS = frozenset({
 # no longer compares against this directly — see ``_validate_lar_schema``.
 EXPECTED_LAR_COLUMNS = RAW_LAR_COLUMNS | DERIVED_LAR_COLUMNS
 
-# ── Cache Directory ───────────────────────────────────────────────────────────
-import os
-CACHE_DIR = os.path.join(os.path.expanduser("~"), ".hmdaanalyzer", "cache")
+# ── Cache Directory: REMOVED in 0.6.0 ─────────────────────────────────────────
+# ``CACHE_DIR`` and ``loader.get_cache_dir()`` are gone. Nothing in the package
+# or the suite ever called them, and nothing ever wrote a byte to that path:
+# every loader fetches or reads straight through. A name that promises a cache
+# which does not exist is worse than no name — a reader plans around it, and a
+# maintainer preserves it across refactors on the assumption something depends
+# on it. If caching is added later it arrives with the code that uses it.
 
 # ── Disparity Thresholds ──────────────────────────────────────────────────────
 DISPARITY_THRESHOLDS = {
@@ -209,3 +256,39 @@ DISPARITY_THRESHOLDS = {
 
 # ── Reference Group for Disparity ────────────────────────────────────────────
 REFERENCE_RACE = "White"
+
+# ── Small-N suppression ───────────────────────────────────────────────────────
+#: Minimum actionable applications a ``derived_race`` group needs before
+#: ``denial_rate_by_race`` will report a rate for it.
+#:
+#: **This rule is not new in 0.6.0. It has been in force since the function was
+#: written, as the bare literal ``result[result["applications"] >= 5]``, and it
+#: was SILENT.** Measured on ``load_sample(n=60)``: eight race groups enter,
+#: three come out, and five protected classes — including "Asian" at 4
+#: applications — vanish from the returned frame with no column, no attribute
+#: and no message recording that they existed. The suppression propagates
+#: untouched into ``disparity_ratio``, ``lender_vs_market``, ``summary_table``
+#: and every report section built on them.
+#:
+#: In a fair-lending context that is the precise artefact ``exceptions.py``
+#: exists to prevent: a group absent from a disparity table is indistinguishable
+#: from a group with no disparity, and the absence reaches the memo, the
+#: spreadsheet and the regulatory file with no way to recover what was removed.
+#:
+#: WHY THE NUMBER IS UNCHANGED. A denial rate over fewer than five applications
+#: is dominated by a single decision — at n=4 the only possible rates are 0, 25,
+#: 50, 75 and 100% — so a ratio built on it carries a precision it does not
+#: have. Five is also the shipped behaviour of every released version, and
+#: moving it would silently change every number this package has ever produced.
+#: 0.6.0 therefore changes the VISIBILITY of the rule, not the rule. The
+#: threshold is named here so the report layer, the README and the tests read
+#: one number instead of four copies of a literal — the same drift this
+#: package's DESERT_PERCENTILE_THRESHOLD exists to prevent.
+#:
+#: WHAT THIS IS NOT. It is not a disclosure-avoidance or re-identification
+#: control, and it is not applied at tract level: ``lending_by_tract``,
+#: ``lending_desert_score`` and ``racial_composition_by_tract`` report every
+#: tract they are given, including single-application ones. Choosing a
+#: tract-level suppression rule is a methodology decision about disclosure that
+#: this release deliberately does not make — see the README.
+MIN_APPLICATIONS_FOR_RATE = 5

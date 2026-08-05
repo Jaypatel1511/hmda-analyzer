@@ -1,0 +1,217 @@
+# docs-check configuration.
+#
+# Adopting this gate in another repo is a copy of tools/docs_check.py plus an
+# edit of this file. tools/docs_check.py here is BYTE-IDENTICAL to the copy
+# merged to nmtc-mapper main at 5a4728a, and should stay that way — a divergent
+# fork of a gate that travels across the portfolio is how five copies of one CI
+# check drifted apart and cost three consecutive passes to reconcile.
+
+[package]
+# The IMPORT name, not the PyPI name.
+#
+# hmda-analyzer is the repo this field became a LIST for. The distribution ships
+# TWO documented, working import paths — `hmdaanalyzer` (canonical) and
+# `hmda_analyzer` (pip-name convention) — and both are already asserted by the
+# release workflow's test-wheel and test-sdist jobs. Configuring only one would
+# leave the other unverified while the gate still reported green: its `__all__`
+# would never be checked against the README, and a symbol the README claims to
+# import from it would never be resolved.
+import_name = ["hmdaanalyzer", "hmda_analyzer"]
+readme = "README.md"
+
+# Assertion 6: every name in __all__ must appear somewhere in the README.
+# Default true. Turning it off is a decision to stop checking whether the
+# public API is documented at all -- record why, here, if you ever do.
+require_all_documented = true
+
+[expected]
+# Committed stdout for every block marked '# docs-check: run', so a change in
+# documented output shows up as a reviewable diff in the PR rather than as a
+# number nobody re-derived. Each 'run' block needs its OWN name; two blocks
+# sharing one expected file is a failure, not a convenience.
+#
+# This repo had no docs/ directory before 0.6.0. The four files under this one
+# are the whole of it.
+dir = "docs/README.expected"
+
+[tests]
+path = "tests"
+# Matches a line like "247 tests across all modules ...". If the README makes no
+# such claim the assertion is skipped -- but if it makes one, it must be true.
+claim_pattern = '^(\d+)\s+tests\b'
+
+[denylist]
+file = "docs-check-denylist.txt"
+# pyproject.toml is scanned only across [project].description and .keywords --
+# the fields that become the PyPI project page. setup.py is scanned whole, and
+# does not exist in this repo: pyproject.toml is the single version source of
+# truth. docs_check.py logs an absent target as a note, not a failure.
+targets = ["README.md", "pyproject.toml", "setup.py"]
+
+# ---------------------------------------------------------------------------
+# BLOCK INVENTORY, AND WHY EACH SKIP IS A SKIP
+#
+# This README uses 4-space INDENTED code blocks throughout, not fenced
+# ```python. The extractor handles all three styles and demands a marker on
+# each, so the marker rides as a `#` comment on the block's first body line. In
+# a Python or shell block that is a valid comment and reads as one; the cost is
+# that it is visible to every reader of the rendered README. That trade is made
+# deliberately here rather than discovered — fail-closed beats silently
+# uncovered — and it was confirmed against this README before adoption:
+# `--list-blocks` found 15 blocks, all indented, all correctly delimited.
+#
+# 15 blocks: 4 run, 11 skip.
+#
+# THE FOUR THAT RUN were chosen so that assertion 1 covers behaviour that
+# matters and produces output that is stable across the 3.11-3.14 matrix:
+#   * dual-import        — the two import paths are the same module object.
+#   * vintage-basis      — the basis maps across the 2021→2024 boundary,
+#                          including `None` for the UNKNOWN 2024 tract entry.
+#   * vintage-refusal    — an ACTUAL GeographyVintageError, raised and printed.
+#                          This is the release's headline behaviour and it is
+#                          executed on every PR, not merely described.
+#   * provenance-columns — the four vintage columns on a guarded aggregation.
+#
+# Deliberately NOT run: anything seeded from `load_sample`. It draws from
+# `numpy.random.default_rng`, whose stream NumPy does not guarantee across
+# feature releases, so a committed expected file would eventually fail for a
+# reason having nothing to do with the documentation being wrong. Every run
+# block builds its own frame from literals instead.
+#
+# THE ELEVEN SKIPS, and why each cannot execute in CI:
+#   * `pip install` — would install from PyPI. The gate already runs against
+#     the built wheel, so executing this would test the wrong artifact.
+#   * Quickstart — prints DataFrame reprs, whose column widths and float
+#     formatting are pandas-version-dependent.
+#   * load_range and cra_proxy_distribution examples (2) — require live CFPB
+#     API access. Their symbols are still resolved by assertion 2.
+#   * get_methodology_path — prints a multi-thousand-line document.
+#   * Illustrative fragments (4) — operate on a `df` the reader supplies.
+#   * Formula displays (2) — `desert_score` and `is_lending_desert` are
+#     notation, not code.
+#   * `pytest tests/ -v` — would recursively invoke the suite this gate runs
+#     inside.
+#
+# ---------------------------------------------------------------------------
+# WHAT THIS GATE ASSERTS, AND WHAT IT DOES NOT
+#
+# An operator looking at a green check should be able to learn its scope from
+# here, without reading the source. A gate whose boundary is undocumented gets
+# read as covering everything, which is how a passing check becomes a false
+# assurance.
+#
+# IT ASSERTS:
+#   1. Every README block marked 'run' produces exactly its committed stdout.
+#   2. Every symbol a README block names as importable actually imports --
+#      from BOTH configured import paths.
+#   3. Any "N tests" claim matches what pytest collects.
+#   4. No retired claim from the denylist survives in README.md or pyproject's
+#      [project].description / .keywords.
+#   5. The package under test resolved out of site-packages, not the checkout.
+#   6. Every name in __all__ appears somewhere in the README.
+#
+# EACH OF THE SIX WAS VERIFIED TO FAIL before this file was committed, by
+# breaking the thing it checks and confirming a non-zero exit — because a gate
+# that has never been seen to fail is indistinguishable from one that cannot:
+#   1. corrupted docs/README.expected/vintage-basis.txt  -> FAIL
+#      [readme-output:4:vintage-basis.txt]
+#   2. added `no_such_symbol` to a README import          -> FAIL
+#      [readme-symbol:hmdaanalyzer.no_such_symbol]
+#   3. changed the claim to "999 tests"                   -> FAIL
+#      [readme-test-count]
+#   4. wrote "disparate-impact" into the README           -> FAIL
+#      [denylist:disparate-impact:README.md]
+#   5. `PYTHONPATH=. python tools/docs_check.py --root .` -> exit 2
+#      (note: a BARE source-tree run does NOT trip this, and correctly so —
+#      `python tools/docs_check.py` puts tools/ on sys.path[0], not the cwd.
+#      PYTHONPATH, an editable install, or copying the script to the repo root
+#      are what actually shadow site-packages.)
+#   6. renamed every mention of UnreachableFlagError      -> FAIL
+#      [readme-missing-symbol:UnreachableFlagError]
+#
+# IT DOES NOT ASSERT -- these are outside the gate, and a green check says
+# nothing about any of them:
+#   * THE OUTPUT-COLUMNS TABLE. The README's "Output columns" section lists the
+#     columns each analysis returns. Nothing compares that table against what
+#     the functions actually return. It was re-derived by hand against running
+#     code for 0.6.0 and is labelled in the README as unchecked. This is the
+#     same blind spot nmtc-mapper records for its nine-column table, and here it
+#     is worse: that table is where the four vintage provenance columns and
+#     `limit_truncated` are documented, so the highest-value table in this
+#     README is one the gate cannot see.
+#   * PROSE NUMBERS. "99 raw columns", "4,908 institutions", the derived_msa_md
+#     sentinel counts (CT 784/705, MI 2,623/4,000), "20.7M LAR rows", the
+#     0.6/0.4 desert weights, the 42% GEOID figure, the Connecticut code ranges.
+#     The 99-column claim happens to be asserted by
+#     tests/test_geography_vintage.py; the rest are checked by a human or not at
+#     all.
+#   * THRESHOLD VALUES QUOTED IN PROSE. The README states
+#     DESERT_PERCENTILE_THRESHOLD as 25, DESERT_DENIAL_RATE_FLOOR as 0.15,
+#     MIN_APPLICATIONS_FOR_RATE as 5 and DESERT_TRACT_FLOOR as 5. Assertion 6
+#     checks the NAMES appear; nothing checks the quoted VALUES still match the
+#     constants. (The tract floor's derivation IS asserted by the suite.)
+#   * INSTANCE ATTRIBUTES AND METHODS. Assertion 2 resolves only top-level
+#     importable names. `result.tables`, `t.classified_denominator`,
+#     `t.excluded` and every `df.<method>` are never resolved.
+#   * THE EXCEPTION TABLE'S CONTENT. Assertion 6 checks each exception NAME
+#     appears. It does not check that the "Raised when" column is true, nor that
+#     the ValueError subclassing the README promises still holds.
+#   * SKIPPED BLOCKS' RUNTIME BEHAVIOUR. 11 of 15 blocks are skip-marked. Their
+#     code is scanned for symbols and never executed, so a skipped block can be
+#     wrong in every way except naming a non-existent import.
+#   * Code inside blockquotes or list items, and >>> doctest blocks -- see the
+#     KNOWN LIMITATIONS section of tools/docs_check.py.
+#
+# ---------------------------------------------------------------------------
+# Known failures -- tracked documentation debt.
+#
+# Every entry is a CLAIM THAT SOMETHING IS BROKEN. Entries are printed loudly on
+# every run, never hidden. An entry that starts passing FAILS the gate, so this
+# list cannot quietly accumulate dead weight. An empty list is the goal state.
+#
+# THIS LEDGER IS EMPTY. HERE IS WHY THAT IS NOT THE USUAL LIE.
+#
+# On nmtc-mapper the ledger was empty and the emptiness WAS the lie: assertions
+# 1-5 all run README -> package, so the whole set is structurally blind to
+# omission, and the moment assertion 6 was added it found twelve undocumented
+# exports.
+#
+# Assertion 6 was run here against the 0.5.0 README BEFORE any of it was
+# rewritten. It found FOURTEEN undocumented exports out of the 32 in __all__:
+#
+#   GeographyVintageError, UnreachableFlagError, ReferenceGroupError,
+#   TRACT_GEOID_BASIS_BY_YEAR, COUNTY_CODE_BASIS_BY_YEAR,
+#   MSA_CODE_BASIS_BY_YEAR, basis_year, denial_rate_by_income_band,
+#   denial_reasons_by_race, lending_by_county, racial_composition_by_tract,
+#   lender_vs_market, top_lenders_by_volume, summary_table
+#
+# The first three are the entire fail-loud contract of this release: 0.6.0's
+# headline feature is a set of typed refusals, and the README named none of
+# them. That is the fair-lending-screener failure mode exactly — nine typed
+# exceptions exported, zero occurrences of the word "exception" in its README.
+#
+# All fourteen were WRITTEN UP in the 0.6.0 README rather than laddered into
+# this ledger: the three exceptions into a full "Errors and refusals" table with
+# a what-to-do column, the three basis maps and basis_year into the vintage
+# section, the seven analysis functions into an "Analyses Supported" table with
+# a returns column, and summary_table with its one documented fallback.
+#
+# So the ledger is empty because the debt was PAID, not because nothing was
+# looked at. The evidence that the gate is looking is the falsification list
+# above — probe 6 removed one of those fourteen names and the gate failed.
+#
+# Also checked and found NOT failing, so deliberately absent:
+#   * denylist -- CET1, disparate-impact and "the methodology federal examiners
+#     use" appear nowhere in this repo's README.md or pyproject
+#     description/keywords. Verified by running the gate, and verified capable
+#     of firing by probe 4. They are live in cdfi-benchmark and
+#     fair-lending-screener, not here.
+#   * assertion 1 -- all four run blocks match their committed stdout.
+#   * assertion 2 -- every symbol the blocks import resolves, from both paths.
+#   * assertion 3 -- the "247 tests" claim matches collection.
+#   * assertion 5 -- both import names resolve to site-packages under the CI
+#     invocation.
+#
+# `known_failures` is deliberately not declared as an empty array below. The
+# loader treats a missing key and an empty list identically, and an absent key
+# cannot be misread as one somebody emptied by accident.

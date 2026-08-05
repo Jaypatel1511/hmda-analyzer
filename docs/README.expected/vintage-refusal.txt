@@ -1,0 +1,2 @@
+GeographyVintageError
+lending_by_county refused: this frame spans more than one county_code basis — basis 2020 (2023); basis 2023 (2024).

@@ -130,6 +130,38 @@ def _require_columns(df, required, fn_name):
         )
 
 
+def _require_numeric(df, column, fn_name):
+    """
+    Raise :class:`MissingColumnError` if ``df[column]`` is present but not numeric.
+
+    A column that exists with the wrong dtype is a schema precondition failure of
+    exactly the same kind as a column that is absent, and it is reported as the
+    same type so callers need one ``except``.
+
+    This exists as a shared helper rather than as a check written twice because
+    both places that need it — ``denial_rate_by_income_band`` and
+    ``generate_disparity_report``'s up-front precondition — must agree about what
+    "numeric" means. Two hand-written dtype tests are two things that can drift,
+    and the report's contract is that it validates BEFORE rendering: if the two
+    disagreed, the report would pass its own precondition and then die halfway
+    through a section, which is the partial-output failure it promises not to
+    produce.
+
+    Absent columns are NOT reported here — call :func:`_require_columns` first.
+    """
+    from pandas.api.types import is_numeric_dtype
+
+    if column in df.columns and not is_numeric_dtype(df[column]):
+        raise MissingColumnError(
+            f"{fn_name} requires a numeric {column!r} column; got dtype "
+            f"{df[column].dtype!r}.\n"
+            f"  Frames from load_from_api(), load_range(), load_from_file() and "
+            f"load_sample() are already coerced with pd.to_numeric; a frame built "
+            f"by hand may not be. Fix with: "
+            f"df[{column!r}] = pd.to_numeric(df[{column!r}], errors='coerce')"
+        )
+
+
 __all__ = [
     "MissingColumnError",
     "SchemaValidationError",
