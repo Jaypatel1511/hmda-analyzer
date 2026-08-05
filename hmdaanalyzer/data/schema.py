@@ -38,13 +38,28 @@ WITHDRAWN_ACTIONS = {4, 5}
 #: constant the loader docstring and the README both point at rather than a
 #: string literal buried in a query dict.
 #:
-#: The set is NOT widened to include 6 here. Purchased loans are originations
-#: made by someone else and later bought; folding them into the default fetch
-#: would change the denominator of every existing denial-rate, disparity and
-#: tract analysis in the package for every caller, silently, to fix a flag on
-#: one function. A caller who wants them supplies the frame themselves — see
+#: The set is NOT widened to include 6 here, and the reason shipped through the
+#: 0.6.0 build was an overstatement worth correcting rather than repeating. It
+#: read: folding purchased loans into the default fetch "would change the
+#: denominator of every existing denial-rate, disparity and tract analysis in the
+#: package". Measured, it changes **one of ten** — and only because
+#: ``racial_composition_by_tract`` was missing its ``action_taken`` filter, which
+#: 0.6.0 fixed. The other nine already filter ``action_taken.isin([1, 2, 3])``,
+#: so an action-6 row is invisible to them however it arrives. With that fix in,
+#: the answer is **zero of ten**.
+#:
+#: The decision not to widen is unchanged, on the argument that actually holds:
+#: a purchased loan is an origination somebody else made and later bought. It is
+#: not an application to this institution, so it does not belong in an
+#: application-keyed fetch at all — regardless of how many downstream
+#: denominators would notice. Widening would also silently double the row count
+#: and the API cost of every default load to serve one optional flag.
+#:
+#: A caller who wants them supplies the frame themselves — see
 #: :func:`load_from_file` — and ``include_purchased`` then does exactly what it
-#: says.
+#: says. On a frame that cannot supply them it now raises
+#: (:class:`~hmdaanalyzer.EmptyUniverseError`) rather than returning a
+#: zero-denominator table.
 API_ACTIONS_TAKEN = (1, 2, 3, 4, 5)
 
 # ── Race Codes ────────────────────────────────────────────────────────────────

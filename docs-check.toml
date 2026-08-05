@@ -36,7 +36,7 @@ dir = "docs/README.expected"
 
 [tests]
 path = "tests"
-# Matches a line like "253 tests across all modules ...". If the README makes no
+# Matches a line like "396 tests across all modules ...". If the README makes no
 # such claim the assertion is skipped -- but if it makes one, it must be true.
 claim_pattern = '^(\d+)\s+tests\b'
 
@@ -60,7 +60,10 @@ targets = ["README.md", "pyproject.toml", "setup.py"]
 # uncovered — and it was confirmed against this README before adoption:
 # `--list-blocks` found 15 blocks, all indented, all correctly delimited.
 #
-# 15 blocks: 4 run, 11 skip.
+# 16 blocks: 4 run, 12 skip. (Was 15/4/11. Build 3 deleted the exclude-Connecticut
+# remedy block and added two in its place — split-at-the-boundary and `vintage=`
+# narrowing — both of which operate on a reader-supplied frame and so are skips.
+# Re-derived with `--list-blocks`, not incremented by hand.)
 #
 # THE FOUR THAT RUN were chosen so that assertion 1 covers behaviour that
 # matters and produces output that is stable across the 3.11-3.14 matrix:
@@ -70,7 +73,11 @@ targets = ["README.md", "pyproject.toml", "setup.py"]
 #   * vintage-refusal    — an ACTUAL GeographyVintageError, raised and printed.
 #                          This is the release's headline behaviour and it is
 #                          executed on every PR, not merely described.
-#   * provenance-columns — the four vintage columns on a guarded aggregation.
+#   * provenance-columns — the five vintage columns on a guarded aggregation,
+#                          including `vintage_dropped_rows = 0` on a call with
+#                          no `vintage=` argument, which is what makes the
+#                          always-present property a gated claim rather than a
+#                          documented one.
 #
 # Deliberately NOT run: anything seeded from `load_sample`. It draws from
 # `numpy.random.default_rng`, whose stream NumPy does not guarantee across
@@ -78,7 +85,7 @@ targets = ["README.md", "pyproject.toml", "setup.py"]
 # reason having nothing to do with the documentation being wrong. Every run
 # block builds its own frame from literals instead.
 #
-# THE ELEVEN SKIPS, and why each cannot execute in CI:
+# THE TWELVE SKIPS, and why each cannot execute in CI:
 #   * `pip install` — would install from PyPI. The gate already runs against
 #     the built wheel, so executing this would test the wrong artifact.
 #   * Quickstart — prints DataFrame reprs, whose column widths and float
@@ -86,7 +93,11 @@ targets = ["README.md", "pyproject.toml", "setup.py"]
 #   * load_range and cra_proxy_distribution examples (2) — require live CFPB
 #     API access. Their symbols are still resolved by assertion 2.
 #   * get_methodology_path — prints a multi-thousand-line document.
-#   * Illustrative fragments (4) — operate on a `df` the reader supplies.
+#   * Illustrative fragments (5) — operate on a `df` the reader supplies. TWO OF
+#     THESE ARE THE VINTAGE-REFUSAL REMEDIES, and they are the reason the
+#     skipped-block limitation below is written at length: their predecessor was
+#     a remedy that did not work, and being skipped is exactly why nothing
+#     caught it. They are executed by tests/test_refusal_remedies_execute.py.
 #   * Formula displays (2) — `desert_score` and `is_lending_desert` are
 #     notation, not code.
 #   * `pytest tests/ -v` — would recursively invoke the suite this gate runs
@@ -131,20 +142,39 @@ targets = ["README.md", "pyproject.toml", "setup.py"]
 #
 # IT DOES NOT ASSERT -- these are outside the gate, and a green check says
 # nothing about any of them:
-#   * THE OUTPUT-COLUMNS TABLE. The README's "Output columns" section lists the
-#     columns each analysis returns. Nothing compares that table against what
-#     the functions actually return. It was re-derived by hand against running
-#     code for 0.6.0 and is labelled in the README as unchecked. This is the
-#     same blind spot nmtc-mapper records for its nine-column table, and here it
-#     is worse: that table is where the four vintage provenance columns and
-#     `limit_truncated` are documented, so the highest-value table in this
-#     README is one the gate cannot see.
+#   * THE OUTPUT-COLUMNS TABLE -- NOT BY THIS GATE, but covered elsewhere as of
+#     0.6.0 build 3. The README's "Output columns" section lists the columns each
+#     analysis returns, and this gate still cannot see it. It is the same blind
+#     spot nmtc-mapper records for its nine-column table, and here it was worse:
+#     that table is where the five vintage provenance columns and
+#     `limit_truncated` are documented, so the highest-value table in this README
+#     was the one nothing read.
+#
+#     It stopped being survivable when build 3 made `vintage_dropped_rows`
+#     unconditional — a change that silently invalidated three rows of a table
+#     nobody was checking. tests/test_output_columns.py now asserts every row
+#     against the columns the function actually returns, in order, and asserts
+#     the reverse direction too (every column it expects is named in the table).
+#     The `lender_vs_market` row was expanded from `lender_suppressed_*` (3) to
+#     the three real names so the check needs no wildcard.
+#
+#     The run block for `provenance-columns` was also extended to print
+#     `vintage_dropped_rows`, so the always-present property IS now inside this
+#     gate — assertion 1 executes it on every PR.
 #   * PROSE NUMBERS. "99 raw columns", "4,908 institutions", the derived_msa_md
-#     sentinel counts (CT 784/705, MI 2,623/4,000), "20.7M LAR rows", the
-#     0.6/0.4 desert weights, the 42% GEOID figure, the Connecticut code ranges.
-#     The 99-column claim happens to be asserted by
-#     tests/test_geography_vintage.py; the rest are checked by a human or not at
-#     all.
+#     sentinel counts (CT 784/705, MI 2,623/4,000), the 0.6/0.4 desert weights,
+#     and the Connecticut code ranges. The 99-column claim happens to be asserted
+#     by tests/test_geography_vintage.py; the rest are checked by a human or not
+#     at all.
+#
+#     This list previously also named "20.7M LAR rows" and "the 42% GEOID
+#     figure". NEITHER IS IN README.md. Both live in
+#     hmdaanalyzer/geography_vintage.py — 20.7M in the GeographyVintageError
+#     scope note, 42% in a module comment. A document whose whole job is to
+#     describe a gate's boundary was describing its own boundary wrongly, which
+#     is the failure mode it exists to prevent one level up. Corrected 0.6.0.
+#     Nothing checks prose numbers in the MODULE docstrings and comments either,
+#     and that is now stated rather than implied by their absence from this list.
 #   * THRESHOLD VALUES QUOTED IN PROSE -- NOT BY THIS GATE, but covered
 #     elsewhere. The README states DESERT_PERCENTILE_THRESHOLD as 25,
 #     DESERT_DENIAL_RATE_FLOOR as 0.15, MIN_APPLICATIONS_FOR_RATE as 5 and
@@ -162,9 +192,48 @@ targets = ["README.md", "pyproject.toml", "setup.py"]
 #   * THE EXCEPTION TABLE'S CONTENT. Assertion 6 checks each exception NAME
 #     appears. It does not check that the "Raised when" column is true, nor that
 #     the ValueError subclassing the README promises still holds.
+#
+#     Also demonstrated, in the same audit: the README's lede claimed "every type
+#     subclasses ValueError, so existing except ValueError handlers keep working
+#     unchanged" six lines above a table row stating CFPBAPIError is a
+#     RuntimeError. The gate cannot see a contradiction between two pieces of
+#     prose, and both pieces named every symbol correctly, so it stayed green.
+#     tests/test_documented_exceptions_and_constants.py now closes this from the
+#     other side: it asserts each exported exception's actual base class, that
+#     `except ValueError` does NOT catch CFPBAPIError, that no universal
+#     ValueError claim appears in the README, and that every exported exception
+#     has a row in the table (not merely a mention somewhere in the file).
 #   * SKIPPED BLOCKS' RUNTIME BEHAVIOUR. 11 of 15 blocks are skip-marked. Their
 #     code is scanned for symbols and never executed, so a skipped block can be
 #     wrong in every way except naming a non-existent import.
+#
+#     THIS GAP IS DEMONSTRATED, NOT THEORETICAL, and it cost a release candidate.
+#     README:174 was a skip-marked block containing the documented remedy for the
+#     2023->2024 vintage refusal:
+#
+#         clean = df[df["state_code"] != "CT"]
+#         lending_by_county(clean)
+#
+#     It does not work and never could. resolve_geography_vintage compares the
+#     frame's YEAR SET against the basis maps and never reads state_code or
+#     county_code, so no row filter changes the verdict — after dropping every
+#     Connecticut row from a CT+IL 2023+2024 frame, both lending_by_county and
+#     lending_by_tract still refuse. Every symbol in the block resolves
+#     (`df`, `lending_by_county`), so assertion 2 was satisfied and the gate was
+#     green. The remedy propagated from there into the shipped
+#     GeographyVintageError message, the CHANGELOG's upgrade table, the
+#     methodology document inside the wheel, and a test that asserted its
+#     PRESENCE — six places, none of them executed. Removed in 0.6.0 build 3.
+#
+#     The general lesson, which is why this is written at length: a skip marker
+#     is a decision that a block's RUNTIME BEHAVIOUR does not matter. For a block
+#     that tells a user how to recover from a refusal, that decision is wrong —
+#     the block IS a behavioural claim. The two replacement remedies are still
+#     skip-marked here (they operate on a frame the reader supplies, which is a
+#     real constraint), so they are executed by
+#     tests/test_refusal_remedies_execute.py instead. Where a skipped block makes
+#     a claim about what the library DOES, the claim needs a test somewhere; the
+#     gate cannot supply one.
 #   * Code inside blockquotes or list items, and >>> doctest blocks -- see the
 #     KNOWN LIMITATIONS section of tools/docs_check.py.
 #
@@ -214,7 +283,7 @@ targets = ["README.md", "pyproject.toml", "setup.py"]
 #     fair-lending-screener, not here.
 #   * assertion 1 -- all four run blocks match their committed stdout.
 #   * assertion 2 -- every symbol the blocks import resolves, from both paths.
-#   * assertion 3 -- the "253 tests" claim matches collection.
+#   * assertion 3 -- the "396 tests" claim matches collection.
 #   * assertion 5 -- both import names resolve to site-packages under the CI
 #     invocation.
 #

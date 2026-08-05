@@ -3302,12 +3302,42 @@ stopped at the mode that announces itself.
 
     **What was done instead.** The refusal message now prices itself: it names the
     boundary as Connecticut-confined, carries the citation, and gives two exact
-    paths — exclude Connecticut and re-run
-    (`df[df['state_code'] != 'CT']`), or split at the boundary into two panels
-    (§M5.2 option 1, the endorsed path, which keeps Connecticut in). Asserted by
+    paths — split at the boundary into two panels (§M5.2 option 1, the endorsed
+    path, which keeps Connecticut in), or narrow with `vintage=`. Asserted by
     `test_the_nationwide_county_refusal_prices_itself`, and the scope note is
     keyed to its own boundary so a decennial-boundary refusal cannot claim
     Connecticut's measurement.
+
+    **CORRECTION (0.6.0, pre-release).** Through the 0.6.0 build the first of
+    those two paths read "exclude Connecticut and re-run
+    (`df[df['state_code'] != 'CT']`)", and it does not work. It was written into
+    this document, into the shipped `GeographyVintageError` message, into the
+    README and into the CHANGELOG's upgrade table without once being executed.
+
+    It cannot work, and the reason is two paragraphs above this one. The basis
+    comparison iterates the frame's YEAR SET against the basis maps and never
+    inspects `state_code` or `county_code`, so no row filter changes the verdict.
+    Measured on a CT+IL 2023+2024 frame: after excluding every Connecticut row,
+    `lending_by_county` still refuses (spans more than one `county_code` basis)
+    and `lending_by_tract` still refuses (pools 2024, for which no cited
+    `census_tract` basis exists).
+
+    The remedy was incompatible with the design from the start. **Coverage item
+    19 rejected state-scoping precisely because a verdict that depends on which
+    rows a frame contains lets a user disarm the guard by subsetting** — and the
+    "why the refusal stands" paragraph above says so in as many words. So the fix
+    is to delete the remedy, not to make the guard honour it; making the guard
+    honour it would implement the exact design coverage item 19 refused.
+
+    Replaced by the two paths that were executed and do work on both call paths:
+    split-at-the-boundary, and `vintage=` narrowing. The refusal message now also
+    states positively that filtering the frame is not a way through, so the next
+    reader does not re-derive the same wrong idea from first principles.
+
+    **How it survived to the release candidate.** README:174 was inside a
+    `# docs-check: skip` block — the gate extracts symbols from skipped blocks
+    and never executes them, which is a limitation `docs-check.toml` documents.
+    It is recorded there now as a demonstrated gap rather than a theoretical one.
 
     **What state-scoping the county map would have cost, since it is the obvious
     alternative and it is not free.** It would mean `COUNTY_CODE_BASIS_BY_YEAR`

@@ -151,7 +151,7 @@ def lending_desert_score(df: pd.DataFrame, vintage: int = None) -> pd.DataFrame:
     ``is_lending_desert`` — a boolean, and NOT a cut on ``desert_score``::
 
         is_lending_desert = (app_percentile < DESERT_PERCENTILE_THRESHOLD)
-                            & (denial_rate > 0.15)
+                            & (denial_rate > DESERT_DENIAL_RATE_FLOOR)
 
     Both conditions must hold. A tract can therefore carry a very high
     ``desert_score`` and still be ``False`` — a high score driven mostly by
@@ -163,9 +163,12 @@ def lending_desert_score(df: pd.DataFrame, vintage: int = None) -> pd.DataFrame:
     the frame. That is also why the vintage guard matters here more than
     anywhere else (see Raises).
 
-    The 0.15 denial-rate floor is a bare literal at the comparison site and is
-    unvalidated — it is not a CFPB threshold and is unrelated to the disparity
-    thresholds in ``schema.DISPARITY_THRESHOLDS``.
+    ``DESERT_DENIAL_RATE_FLOOR`` is **unvalidated** — it is not a CFPB threshold
+    and is unrelated to the disparity thresholds in
+    ``schema.DISPARITY_THRESHOLDS``. Import it from
+    ``hmdaanalyzer.geography_vintage`` to read the shipped value rather than
+    trusting a number re-typed into prose; both this formula display and the
+    comparison site below name the constant, so the two cannot drift.
 
     Args:
         df: Cleaned HMDA LAR DataFrame.
@@ -265,6 +268,37 @@ def racial_composition_by_tract(df: pd.DataFrame, vintage: int = None) -> pd.Dat
     Show racial composition of applicants by census tract.
     Useful for identifying tracts where lending may differ by applicant race.
 
+    **Denominator, and a change in 0.6.0.** Both returned columns are computed
+    over the *actionable* rows only — ``action_taken`` in ``(1, 2, 3)``:
+    originated, approved-but-not-accepted, and denied. Through 0.5.0 this
+    function applied no ``action_taken`` filter at all and was the only analysis
+    in the package that did not. Its denominator therefore included action 4
+    (withdrawn by the applicant), action 5 (file closed for incompleteness) and
+    action 6 (a purchased loan — an origination somebody else made, never an
+    application to this institution).
+
+    That produced two columns named ``denial_rate`` in one package with
+    different denominators. On a tract carrying one row per action 1–6::
+
+        lending_by_tract              applications = 3   denial_rate = 0.333
+        racial_composition_by_tract   applications = 6   denial_rate = 0.167   (0.5.0)
+        racial_composition_by_tract   applications = 3   denial_rate = 0.333   (0.6.0)
+
+    The old bias had a direction: non-decision rows can only enlarge the
+    denominator, so a per-(tract, race) fair-lending rate was systematically
+    **understating denials**.
+
+    The filter applies to ``applications`` as well as to ``denial_rate``,
+    deliberately. ``applications`` means actionable applications at the nine
+    other sites that emit it, and a tenth meaning for one column name is the
+    drift rather than the cure for it — a reader comparing this table against
+    ``lending_by_tract`` must be comparing like with like. The cost, stated: the
+    racial *composition* is now the composition of actionable applications, not
+    of every LAR row touching the tract. A tract whose rows are all withdrawals
+    and purchases now yields no row here at all, which is the honest answer —
+    there is no application to rate — rather than a fabricated 0.0 denial rate
+    over a denominator of withdrawals.
+
     Args:
         df: Cleaned HMDA LAR DataFrame.
         vintage: Optional tract basis year to narrow to. See
@@ -286,7 +320,13 @@ def racial_composition_by_tract(df: pd.DataFrame, vintage: int = None) -> pd.Dat
     )
     df = resolved.frame
 
-    result = df.groupby(
+    # The same filter its nine siblings use. Written as the same expression at
+    # each site rather than shared, because that is how the other nine are
+    # written and a single divergent copy is what this line is fixing; the suite
+    # asserts all ten agree (tests/test_action_taken_denominator.py).
+    actionable = df[df["action_taken"].isin([1, 2, 3])].copy()
+
+    result = actionable.groupby(
         ["census_tract", "derived_race"]
     ).agg(
         applications=("is_denied", "count"),

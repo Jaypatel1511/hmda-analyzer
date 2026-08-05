@@ -61,20 +61,36 @@ def test_load_sample_produces_no_purchased_rows(sample_df):
     assert 6 not in set(sample_df["action_taken"].dropna().unique())
 
 
-def test_empty_purchased_cut_carries_an_explicit_caveat(sample_df):
-    """0.5.0 returned four zeros and an empty `excluded` tally, with nothing
-    anywhere distinguishing "purchased nothing" from "never fetched"."""
-    result = cra_proxy_distribution(
-        _cra_ready(sample_df), by="borrower", include_purchased=True
-    )
-    purchased = [t for t in result.tables if t.universe == "purchased"]
-    assert purchased, "include_purchased=True produced no purchased table at all"
-    for table in purchased:
-        assert table.classified_denominator == 0
-        assert "EMPTY PURCHASED CUT" in table.caveat
-        # The caveat must name the actionable cause, not merely say "empty".
-        assert "API_ACTIONS_TAKEN" in table.caveat
-        assert "load_from_file" in table.caveat
+def test_a_frame_wide_empty_purchased_cut_now_raises(sample_df):
+    """SUPERSEDED, deliberately, and kept as the record of what replaced it.
+
+    This test used to assert that ``include_purchased=True`` on a purchase-free
+    frame RETURNED a four-zero table carrying an ``EMPTY PURCHASED CUT`` caveat.
+    That was the 0.6.0 build's mitigation for a 0.5.0 defect, and it was the
+    wrong instrument: the caveat sits on ``table.caveat``, a sibling of
+    ``table.distribution``, so every use the output is actually put to —
+    charting it, ``to_csv``, ``pd.concat`` of the distributions, reading a cell —
+    carried the four zeros and dropped the caveat. A table of zeros in the same
+    shape as the real distribution beside it reads as "purchased no LMI loans"
+    when the fact is "purchased loans were never fetched".
+
+    It now raises. Full argument in :class:`EmptyUniverseError` and in
+    tests/test_include_purchased.py; the short version is that this is the
+    README's opening commitment ("an arithmetically impossible flag raises"), not
+    the "well-formed query that matches no rows" case — that rule is about an
+    EMPTY result, which cannot be mistaken for a finding.
+    """
+    from hmdaanalyzer import EmptyUniverseError
+
+    with pytest.raises(EmptyUniverseError) as exc:
+        cra_proxy_distribution(
+            _cra_ready(sample_df), by="borrower", include_purchased=True
+        )
+    msg = str(exc.value)
+    # The message must still name the actionable cause, exactly as the caveat had
+    # to. Losing the diagnosis while gaining the refusal would be a bad trade.
+    assert "API_ACTIONS_TAKEN" in msg
+    assert "load_from_file" in msg
 
 
 def test_non_empty_purchased_cut_has_no_empty_caveat(sample_df):

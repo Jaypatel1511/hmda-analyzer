@@ -35,7 +35,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from hmdaanalyzer.exceptions import _require_columns
+from hmdaanalyzer.exceptions import EmptyUniverseError, _require_columns
 
 # Category order is fixed; LMI = Low + Moderate.
 _CATEGORIES = ["Low", "Moderate", "Middle", "Upper"]
@@ -344,6 +344,44 @@ def cra_proxy_distribution(
     # Universe cuts: originations always; purchased kept separate and labeled.
     cuts = [("originated", {1})]
     if include_purchased:
+        # A purchased cut over a frame with no purchased loan cannot be answered,
+        # and the shape of the wrong answer is why this raises instead of
+        # returning it: four category rows, every count 0, every share 0.0, in
+        # the identical shape as the real distribution beside it. That reads as
+        # "purchased no LMI loans" when the fact is "purchased loans were never
+        # fetched" — opposite facts with one representation.
+        #
+        # The caveat that used to carry the distinction lives on `table.caveat`,
+        # a SIBLING of `table.distribution`. Charting, exporting or concatenating
+        # the distribution keeps the zeros and drops the caveat, so the mitigation
+        # was absent from every use the output is actually put to.
+        #
+        # This is the README's opening commitment — "an arithmetically impossible
+        # flag raises" — and the same argument UnreachableFlagError makes. It is
+        # NOT the "well-formed query that matches no rows" case: that rule is
+        # about an EMPTY result, which cannot be mistaken for a finding, and this
+        # was a populated table built to look like one.
+        if not (df["action_taken"] == 6).any():
+            raise EmptyUniverseError(
+                "cra_proxy_distribution was called with include_purchased=True, "
+                "but this frame contains no action_taken == 6 (purchased loan) "
+                "rows, so the purchased cut has a zero denominator and nothing "
+                "to distribute.\n"
+                "  This is NOT evidence that no loans were purchased, and the "
+                "four zeros it used to return said exactly that. The two facts "
+                "have one representation, so the table is refused rather than "
+                "returned.\n"
+                "  If the frame came from load_from_api() or load_range(), that "
+                "is the certain cause and not a coincidence: the CFPB query "
+                "requests actions_taken=1,2,3,4,5 "
+                "(hmdaanalyzer.data.schema.API_ACTIONS_TAKEN), so action 6 is "
+                "absent from every frame they produce. load_sample() generates "
+                "only actions 1, 3 and 4.\n"
+                "  To analyse purchased loans, supply a frame that contains "
+                "them — load_from_file() on a CSV exported with action 6 "
+                "included. To analyse everything else, drop the flag: "
+                "include_purchased=False is the default and is unaffected."
+            )
         cuts.append(("purchased", {6}))
 
     # Per-year grouping only when the frame spans ≥2 years.

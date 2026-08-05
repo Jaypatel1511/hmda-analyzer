@@ -131,9 +131,23 @@ weaker instrument than a raise, and is named as one.
 | Condition | Example |
 |---|---|
 | The frame spans two bases for the key | tract frame pooling 2021 (basis 2010) with 2022 (basis 2020) |
-| The frame spans two bases for a key the guard **consults** | tract frame pooling 2023 with 2024 — caught by the *county* map, because the county code is the tract GEOID's first five digits |
+| The frame spans two bases for a key the guard **consults** | **county** frame pooling 2023 (basis 2020) with 2024 (basis 2023) |
 | An **UNKNOWN** year is pooled with any other year | tract frame pooling 2023 with 2024 or 2025 |
 | `vintage=` selects no rows at all | `vintage=2020` on a 2018–2021 frame |
+
+A note on rows 2 and 3, because they used to carry the same example and only one
+of them was right. The tract guard *does* consult the county map — the county
+code is the tract GEOID's first five digits, so a county-scheme change is
+necessarily a tract-key change — but **as shipped that consult has no live
+case.** Since the uncited 2024 tract entry was removed, 2024 is UNMAPPED for
+tracts, and the UNKNOWN rule is evaluated before the basis comparison. So a
+tract frame pooling 2023 with 2024 is refused by row 3, never by row 2. No
+shipped year-pair has agreeing tract bases and disagreeing county bases.
+
+The consult stays, and is exercised by a test that restores the 2024 tract entry
+for its duration. It re-arms the moment somebody adds a cited 2024 tract entry —
+which is exactly when Connecticut would otherwise become invisible to the tract
+map.
 
 A single UNKNOWN year **alone** is fine and is not refused — a 2025-only
 analysis is exactly as coherent as a 2023-only one.
@@ -167,27 +181,42 @@ with the county prefix even though the tract *delineation* basis stays 2020.
 The refusal is nationwide and its cause is one state. That is deliberate — the
 library will not decide on your behalf that your rows are unaffected — but it
 means the refusal may be costing you an analysis that would have been correct.
-Two exact ways through:
 
-**a. Exclude Connecticut and re-run.**
+**Filtering the frame is not one of the ways through.** The guard's verdict is
+computed from the **years** a frame spans, never from the rows it contains: it
+compares the frame's year set against the basis maps and never reads
+`state_code` or `county_code` at all. So dropping every Connecticut row leaves
+2023 and 2024 both present, and the identical refusal fires on the filtered
+frame. That is the same sentence as the paragraph above — the library will not
+decide on your behalf that your rows are unaffected — restated as a mechanism,
+and it is deliberate: a verdict that depended on which rows you kept could be
+disarmed by subsetting.
+
+Two exact ways through. Both change the **years**, not the rows:
+
+**a. Split at the boundary and present two panels.** The endorsed path for *any*
+vintage break. Keeps Connecticut in, involves no estimation and no non-random
+subsetting. Label the break explicitly.
 
     # docs-check: skip illustrative fragment on a frame the reader supplies
-    clean = df[df["state_code"] != "CT"]
-    # or, without a state column:
-    clean = df[~df["county_code"].astype(str).str.startswith("09")]
-    lending_by_county(clean)
+    panel_2023 = lending_by_county(df[df["activity_year"] == "2023"])
+    panel_2024 = lending_by_county(df[df["activity_year"] == "2024"])
 
-Every remaining key is unchanged across the boundary.
+**b. Narrow to one basis with `vintage=`.** Selects the rows whose data year uses
+that basis and aggregates only those. Note the argument is the **basis** year,
+not the data year — at this boundary the 2023 rows use county basis 2020 and the
+2024 rows use county basis 2023.
 
-**b. Split at the boundary and present two panels.** This is the endorsed path
-for *any* vintage break, keeps Connecticut in, and involves no estimation and no
-non-random subsetting. Label the break explicitly.
+    # docs-check: skip illustrative fragment on a frame the reader supplies
+    lending_by_county(df, vintage=2020)   # the 2023 rows
+    lending_by_county(df, vintage=2023)   # the 2024 rows
 
-Two things that are **not** ways through: aggregating up to county or MSA (those
-keys move too, at overlapping boundaries), and building a crosswalk inside the
-library (HMDA carries no sub-tract location, so any conversion allocates
-proportionally and produces fractional loan counts — if you want that estimate,
-build it yourself and own it).
+Three things that are **not** ways through: filtering out Connecticut (above),
+aggregating up to county or MSA (those keys move too, at overlapping
+boundaries), and building a crosswalk inside the library (HMDA carries no
+sub-tract location, so any conversion allocates proportionally and produces
+fractional loan counts — if you want that estimate, build it yourself and own
+it).
 
 Note that the measured county-scheme change is Connecticut-only, but two other
 states' `county_code` **sets** differ between 2023 and 2024: SD `46017` and TX
@@ -215,9 +244,15 @@ Three things to know:
   frame containing only 2018–2021 selects zero rows. That is a malformed
   question, not a finding: the answer is not "nothing here." `GeographyVintageError`
   names the bases and years the frame actually contains.
-- **Dropped rows are recorded.** When `vintage=` removed rows, the output
-  carries a `vintage_dropped_rows` column (or a `dropped_rows_by_year` key, for
-  `lender_summary`, which returns a dict and cannot carry a column).
+- **Dropped rows are recorded, always.** Every guarded output carries a
+  `vintage_dropped_rows` column — `0` when nothing was dropped — and
+  `lender_summary`, which returns a dict and cannot carry a column, carries a
+  `dropped_rows_by_year` key, `{}` when nothing was dropped. Both are
+  **unconditional**, for the same reason the `*_status` columns are: a field that
+  appears only in the unhappy cases signals by its own absence, which a caller
+  holding one frame cannot read. Note what it does *not* distinguish — "no
+  `vintage=` requested" and "`vintage=` dropped nothing" are both `0`, because in
+  both cases zero rows were dropped and the column names exactly one fact.
 - **It does not exempt you from the five-tract floor** below.
 
 ### The five-tract floor on `lending_desert_score`
@@ -250,7 +285,7 @@ unhappy cases would signal by its own absence.
 | `tract_geoid_vintage_status` | `CITED`, `UNKNOWN`, or `NO_YEAR_COLUMN`. Always present. |
 | `county_code_vintage` | County FIPS basis year. Present on **tract** outputs too: the tract guard consults the county map, so the output owes provenance for everything that governed it, not only for its own key. |
 | `county_code_vintage_status` | As above, for the county key. Always present. |
-| `vintage_dropped_rows` | Only when `vintage=` dropped rows: how many. |
+| `vintage_dropped_rows` | How many rows `vintage=` dropped. **Always present**, `0` when none were. |
 
 `tract_geoid_vintage` is deliberately **not** called `tract_vintage`. The LAR
 carries two tract-related things on different schedules — the tract
@@ -281,8 +316,11 @@ The status values are importable as `BASIS_STATUS_CITED`,
     })
     out = lending_by_tract(df)
     for col in ("tract_geoid_vintage", "tract_geoid_vintage_status",
-                "county_code_vintage", "county_code_vintage_status"):
+                "county_code_vintage", "county_code_vintage_status",
+                "vintage_dropped_rows"):
         print(col, "=", out[col].iloc[0])
+    # vintage_dropped_rows is present with no vintage= argument at all — it
+    # reports 0, rather than signalling "nothing dropped" by being absent.
 
 The full decision record — every rejected alternative and the measurement behind
 it — ships inside the wheel:
@@ -449,9 +487,9 @@ instead. It swallows nothing else.
 
 ### Output columns
 
-Not checked by the docs gate — the gate's block execution covers the examples
-above, and an output-columns table is a documented blind spot in it. This table
-is maintained by hand and was re-derived against the running code for 0.6.0.
+Not checked by the docs gate — an output-columns table is a documented blind
+spot in it — but no longer unchecked. `tests/test_output_columns.py` asserts
+every row below against what the function actually returns.
 
 | Function | Columns |
 |---|---|
@@ -459,17 +497,24 @@ is maintained by hand and was re-derived against the running code for 0.6.0.
 | `disparity_ratio` | the above, plus `reference_group`, `reference_denial_rate`, `disparity_ratio`, `disparity_level` |
 | `denial_rate_by_income_band` | `income_band`, `applications`, `denials`, `denial_rate` |
 | `denial_reasons_by_race` | `derived_race`, `denial_reason_label`, `count`, `total`, `pct` |
-| `lending_by_tract` | `census_tract`, `applications`, `denials`, `originations`, `avg_loan_amount`, `median_income`, `denial_rate`, `origination_rate`, `tract_geoid_vintage`, `tract_geoid_vintage_status`, `county_code_vintage`, `county_code_vintage_status` |
-| `lending_by_county` | `county_code`, `applications`, `denials`, `originations`, `total_loan_volume`, `avg_loan_amount`, `denial_rate`, `state_code`, `county_code_vintage`, `county_code_vintage_status` |
+| `lending_by_tract` | `census_tract`, `applications`, `denials`, `originations`, `avg_loan_amount`, `median_income`, `denial_rate`, `origination_rate`, `tract_geoid_vintage`, `tract_geoid_vintage_status`, `county_code_vintage`, `county_code_vintage_status`, `vintage_dropped_rows` |
+| `lending_by_county` | `county_code`, `applications`, `denials`, `originations`, `total_loan_volume`, `avg_loan_amount`, `denial_rate`, `state_code`, `county_code_vintage`, `county_code_vintage_status`, `vintage_dropped_rows` |
 | `lending_by_state` | `state_code`, `applications`, `denials`, `originations`, `total_volume`, `denial_rate` (no vintage columns — unguarded) |
 | `lending_desert_score` | everything `lending_by_tract` returns, plus `app_percentile`, `desert_score`, `is_lending_desert` |
-| `racial_composition_by_tract` | `census_tract`, `derived_race`, `applications`, `denial_rate`, plus the four vintage columns |
-| `lender_vs_market` | `derived_race`, `lender_applications`, `lender_denials`, `lender_denial_rate`, `lender_suppressed_*` (3), `market_denial_rate`, `market_suppressed_*` (3), `vs_market`, `vs_market_pct` |
+| `racial_composition_by_tract` | `census_tract`, `derived_race`, `applications`, `denial_rate`, `tract_geoid_vintage`, `tract_geoid_vintage_status`, `county_code_vintage`, `county_code_vintage_status`, `vintage_dropped_rows` |
+| `lender_vs_market` | `derived_race`, `lender_applications`, `lender_denials`, `lender_denial_rate`, `lender_suppressed_groups`, `lender_suppressed_applications`, `lender_suppressed_group_names`, `market_denial_rate`, `market_suppressed_groups`, `market_suppressed_applications`, `market_suppressed_group_names`, `vs_market`, `vs_market_pct` |
 | `top_lenders_by_volume` | `lei`, `originations`, `total_volume`, `avg_loan` |
 | loader output | the 99 raw CFPB columns plus `is_approved`, `is_denied`, `tract_geoid_vintage`, `limit_truncated` |
 
-`vintage_dropped_rows` is appended to any guarded output when `vintage=` dropped
-rows.
+`vintage_dropped_rows` is on **every** guarded output, carrying `0` when
+`vintage=` dropped nothing or was never passed. With the four basis/status
+columns that makes five provenance fields, and all five are unconditional.
+
+This table used to say it was maintained by hand and unchecked. It is now
+asserted: `tests/test_output_columns.py` compares every row against the columns
+the function actually returns, so a drift between this table and the code fails
+the suite. That closes what `docs-check.toml` names as its own largest blind
+spot — the gate cannot see this table, so something else had to.
 
 ---
 
@@ -541,7 +586,7 @@ Moderate `[50, 80)`, Middle `[80, 120)`, Upper `≥ 120`; LMI = Low + Moderate).
 A frame spanning ≥2 `activity_year`s produces **per-year** tables, each using that
 year's own annual area median. Every table carries `STANDARD_CRA_PROXY_CAVEAT`.
 
-### `include_purchased` is inert on frames this package loads
+### `include_purchased` raises on frames this package loads
 
 Purchased loans (`action_taken == 6`) are excluded by default;
 `include_purchased=True` adds them as a separate, labeled cut — never blended.
@@ -550,18 +595,42 @@ Purchased loans (`action_taken == 6`) are excluded by default;
 `load_from_api` and `load_range` query the CFPB Data Browser with
 `actions_taken=1,2,3,4,5` (`API_ACTIONS_TAKEN` in `hmdaanalyzer.data.schema`),
 and `load_sample` generates only actions 1, 3 and 4. So on any frame they
-produced, `include_purchased=True` selects nothing and yields a table with a zero
-denominator and four zero counts — which reads as "purchased no LMI loans" when
-the truth is "purchased loans were never fetched."
+produced, `include_purchased=True` has nothing to select.
 
-That table now carries an explicit `EMPTY PURCHASED CUT` caveat saying exactly
-that. The flag is fully functional on a frame that *does* contain purchased
-loans, which today means one supplied through `load_from_file`.
+**It now raises `EmptyUniverseError`** rather than returning a table. Through
+0.5.0 and the 0.6.0 build it returned four category rows with every count `0` and
+every share `0.0`, over a zero denominator, in the identical shape as the real
+distribution printed beside it — which reads as "purchased no LMI loans" when the
+truth is "purchased loans were never fetched." The 0.6.0 build attached an
+`EMPTY PURCHASED CUT` caveat to `table.caveat`; that is a *sibling* of
+`table.distribution`, so charting, exporting or concatenating the distribution
+kept the zeros and dropped the caveat. This is the opening commitment of this
+README — *an arithmetically impossible flag raises* — and it is the same argument
+`UnreachableFlagError` makes for `is_lending_desert`.
 
-The default action set is deliberately not widened: purchased loans are
-originations made by someone else and later bought, and folding them into every
-fetch would change the denominator of every denial-rate, disparity and tract
-analysis in the package, silently, to fix a flag on one function.
+It is **not** the "well-formed query that matches no rows" case below. That rule
+is about an *empty* result, which cannot be mistaken for a finding. A populated
+table of zeros is built to be.
+
+The flag is fully functional on a frame that *does* contain purchased loans,
+which today means one supplied through `load_from_file`. One purchased row is
+enough; this is not a small-N rule. Within such a frame, a *year* with no
+purchases still returns a caveated zero table rather than raising — there the
+sibling years are direct evidence that the universe is real, so the zero is a
+fact about the year rather than about the fetch.
+
+The default action set is deliberately not widened, and the reason previously
+given here was wrong. It read that widening "would change the denominator of
+every denial-rate, disparity and tract analysis in the package." Measured, it
+changed **one of ten** — and only because `racial_composition_by_tract` was
+missing its `action_taken` filter, which 0.6.0 fixes. The other nine already
+filter `action_taken.isin([1, 2, 3])`, so an action-6 row is invisible to them
+however it arrives; with the fix in, the answer is **zero of ten**. The decision
+stands on the argument that actually holds: a purchased loan is an origination
+somebody else made and later bought, so it is not an application to this
+institution and does not belong in an application-keyed fetch — and widening
+would silently double the row count and API cost of every default load to serve
+one optional flag.
 
 ### ⚠️ This is a PROXY — read before using the numbers
 
@@ -594,18 +663,32 @@ via `get_methodology_path`; see the vintage section above for the call.
 
 ## Errors and refusals
 
-Every failure this library can raise is typed, and every type subclasses
-`ValueError`, so existing `except ValueError` handlers keep working unchanged.
-They are importable from `hmdaanalyzer` or `hmda_analyzer`.
+Every failure this library can raise is typed, and every type is importable from
+`hmdaanalyzer` or `hmda_analyzer`. They split by **what went wrong**, and the
+split decides what catches them:
+
+- **The seven refusals about your data** — `MissingColumnError`,
+  `SchemaValidationError`, `ActivityYearMismatchError`, `GeographyVintageError`,
+  `UnreachableFlagError`, `ReferenceGroupError`, `EmptyUniverseError` — all
+  subclass `ValueError`, so an existing `except ValueError` keeps catching them
+  unchanged.
+- **`CFPBAPIError` subclasses `RuntimeError`, not `ValueError`.** It reports that
+  the CFPB API returned an HTTP error — a transport failure, not a problem with
+  your frame — and `except ValueError` **will not catch it**. A CFPB 403 escapes
+  a handler written for the first bullet alone.
+
+So there is no single base class that catches everything. Catch the specific
+types you handle, or `except (ValueError, RuntimeError)` if you want both.
 
 | Exception | Raised when | What to do |
 |---|---|---|
 | `MissingColumnError` | A required column is absent — or present with a dtype the analysis cannot use, e.g. a non-numeric `income`. Also raised when a filter argument (`lei=`, `state=`) names a column the frame lacks. | Fix the frame. The message names the function and the column. |
 | `SchemaValidationError` | A fetched year's columns deviate from the canonical CFPB set. Names the year and the offending columns. | The CFPB schema may have changed. Do not trust the load until `RAW_LAR_COLUMNS` is updated with the drift documented. |
 | `ActivityYearMismatchError` | The API returned rows whose `activity_year` is not the year requested. | Retry; if it persists the API is serving the wrong year's data. |
-| `GeographyVintageError` | The frame pools data years whose geography keys do not mean the same thing, or `vintage=` selected no rows. | Split at the boundary, exclude the affected state, or narrow with `vintage=`. See the vintage section. |
+| `GeographyVintageError` | The frame pools data years whose geography keys do not mean the same thing, or `vintage=` selected no rows. | Split at the boundary into two panels, or narrow with `vintage=`. Filtering rows out does **not** clear it — the verdict is on the years the frame spans. See the vintage section. |
 | `UnreachableFlagError` | `lending_desert_score` was given fewer than `DESERT_TRACT_FLOOR` (5) tracts, where `is_lending_desert` cannot be `True` whatever the data says. | Use `lending_by_tract` for the counts, or widen the frame. |
 | `ReferenceGroupError` | `disparity_ratio` was asked to compare against a reference group not present in the data (after small-N suppression). | Pass a `reference=` that exists, or widen the frame. |
+| `EmptyUniverseError` | `cra_proxy_distribution(..., include_purchased=True)` was given a frame with no `action_taken == 6` rows, so the purchased cut has a zero denominator and nothing to distribute. | Supply a frame containing purchased loans via `load_from_file`, or drop the flag. No loader in this package can produce one. |
 | `CFPBAPIError` | The CFPB API returned an HTTP error. Carries `status_code`, `response_body` and `url`. A `RuntimeError`, not a `ValueError`. | See the cloud-environment note below for the 403 case. |
 
     # docs-check: skip illustrative fragment on a frame the reader supplies
@@ -683,7 +766,7 @@ download the CSV directly from the HMDA Data Browser and load it with
     # docs-check: skip would recursively invoke the suite this gate runs inside
     pytest tests/ -v -m "not live"
 
-253 tests across all modules (offline/mocked; no live API calls). The suite
+396 tests across all modules (offline/mocked; no live API calls). The suite
 contains **zero skip markers** — a test that skips is a test that certifies
 nothing, and `empty_parameter_set_mark = "fail_at_collect"` turns an empty
 parametrize into a collection error rather than a silent skip.

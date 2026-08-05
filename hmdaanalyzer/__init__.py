@@ -8,6 +8,7 @@ except PackageNotFoundError:
 from hmdaanalyzer.exceptions import (
     MissingColumnError, SchemaValidationError, ActivityYearMismatchError,
     GeographyVintageError, UnreachableFlagError, ReferenceGroupError,
+    EmptyUniverseError,
 )
 from hmdaanalyzer.geography_vintage import (
     TRACT_GEOID_BASIS_BY_YEAR, COUNTY_CODE_BASIS_BY_YEAR, MSA_CODE_BASIS_BY_YEAR,
@@ -39,6 +40,7 @@ __all__ = [
     "SchemaValidationError",
     "ActivityYearMismatchError",
     "GeographyVintageError", "UnreachableFlagError", "ReferenceGroupError",
+    "EmptyUniverseError",
     "TRACT_GEOID_BASIS_BY_YEAR", "COUNTY_CODE_BASIS_BY_YEAR",
     "MSA_CODE_BASIS_BY_YEAR", "basis_year",
     "CFPBAPIError",

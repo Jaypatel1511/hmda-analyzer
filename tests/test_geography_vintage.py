@@ -438,14 +438,74 @@ def test_the_nationwide_county_refusal_prices_itself():
         "false and falsifiable by a user in one query: " + msg
     )
     # The two real paths, both exact, both named.
-    assert "state_code" in msg and "!= 'CT'" in msg, (
-        "the message does not give the exclude-and-re-run path: " + msg
-    )
     assert "two panels" in msg and "§M5.2 option 1" in msg, (
         "the message does not give the endorsed split-at-the-boundary path: " + msg
     )
+    assert "vintage=2020" in msg and "vintage=2023" in msg, (
+        "the message does not give the vintage= narrowing path with the basis "
+        "years for this boundary: " + msg
+    )
     # ...and it does not soften the refusal into a suggestion.
     assert "It is still a refusal, deliberately" in msg, msg
+
+    # And the path that does NOT work is not offered.
+    #
+    # Until 0.6.0 this test asserted the OPPOSITE — it required
+    # "state_code" and "!= 'CT'" to be in the message, pinning a remedy that
+    # cannot work into the shipped text and guaranteeing that removing it broke
+    # the suite. The remedy was never executed by anything.
+    #
+    # It cannot work: resolve_geography_vintage compares the frame's YEAR SET
+    # against the basis maps and never reads state_code or county_code, so no
+    # row filter changes the verdict. Excluding every CT row from a CT+IL
+    # 2023+2024 frame leaves both years present, and lending_by_county refuses
+    # identically. Making the guard honour it would mean state-scoping the
+    # county map, which coverage item 19 rejected on the grounds that a verdict
+    # depending on which rows a frame holds can be disarmed by subsetting.
+    assert "!= 'CT'" not in msg and "state_code" not in msg, (
+        "the message offers a row-filtering remedy again. Filtering cannot "
+        "clear this refusal — the verdict is on the years the frame spans: " + msg
+    )
+    assert "startswith('09')" not in msg, msg
+
+
+def test_no_refusal_message_offers_a_remedy_that_does_not_work_on_its_own_path():
+    """The general form of the above, checked at every message the guard emits.
+
+    A remedy is only a remedy if it clears the refusal that printed it. This
+    walks the three refusal shapes on both guarded keys, and for each one asserts
+    that the message contains no row-filtering instruction — the class of remedy
+    that is structurally incapable of working here, because the guard's verdict
+    is a function of the frame's year set alone.
+    """
+    forbidden = ["!= 'CT'", '!= "CT"', "startswith('09')", 'startswith("09")',
+                 "state_code'] !=", "exclude Connecticut", "Exclude Connecticut"]
+
+    messages = []
+    # county basis span (2023 + 2024), which is the one carrying the scope note
+    with pytest.raises(GeographyVintageError) as exc:
+        lending_by_county(frame((2023, "09001"), (2024, "09110")))
+    messages.append(("lending_by_county basis span", str(exc.value)))
+    # tract UNKNOWN-year pooling, the shape a CT 2023+2024 tract frame actually hits
+    with pytest.raises(GeographyVintageError) as exc:
+        lending_by_tract(frame((2023, "09001"), (2024, "09110")))
+    messages.append(("lending_by_tract unknown-year pooling", str(exc.value)))
+    # tract basis span across the decennial boundary
+    with pytest.raises(GeographyVintageError) as exc:
+        lending_by_tract(frame((2021, "51001"), (2022, "51001")))
+    messages.append(("lending_by_tract basis span", str(exc.value)))
+    # vintage= selecting nothing
+    with pytest.raises(GeographyVintageError) as exc:
+        lending_by_tract(frame((2022, "51001")), vintage=2010)
+    messages.append(("vintage= selected no rows", str(exc.value)))
+
+    for label, msg in messages:
+        for phrase in forbidden:
+            assert phrase not in msg, (
+                f"the {label} message offers the row-filtering remedy "
+                f"{phrase!r}, which cannot clear a refusal computed from the "
+                f"frame's year set: {msg}"
+            )
 
 
 def test_the_scope_note_is_declarative_and_fires_only_at_its_own_boundary():

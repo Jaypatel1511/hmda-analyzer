@@ -100,16 +100,62 @@ class UnreachableFlagError(ValueError):
 
     ``rank(pct=True)`` over *n* rows has a minimum of ``1/n``, so
     ``app_percentile`` has a minimum of ``100/n``, and the flag requires
-    ``app_percentile < 25``. For n <= 4 the flag is *arithmetically* incapable of
-    being ``True`` whatever the data says, so returning ``is_lending_desert =
-    False`` for every tract is a **fabricated negative** — the precise failure
-    this module exists to prevent. Ties only raise the minimum percentile, so the
+    ``app_percentile < DESERT_PERCENTILE_THRESHOLD``. Below
+    ``DESERT_TRACT_FLOOR`` tracts the flag is *arithmetically* incapable of being
+    ``True`` whatever the data says, so returning ``is_lending_desert = False``
+    for every tract is a **fabricated negative** — the precise failure this
+    module exists to prevent. Ties only raise the minimum percentile, so the
     floor holds unconditionally.
 
-    This is neither a small-N suppression rule nor a claim that five tracts is
+    Both constants live in :mod:`hmdaanalyzer.geography_vintage`, and
+    ``DESERT_TRACT_FLOOR`` is *derived* from
+    ``DESERT_PERCENTILE_THRESHOLD`` at import rather than written down beside
+    it, so the two cannot drift apart. They are named here rather than quoted
+    because a value re-typed into a docstring is a fourth copy that no
+    threshold-drift test was reading: the two tests that fail when the threshold
+    moves both point at executable code, and this text would have been left
+    stale by anyone who fixed exactly what those tests named.
+
+    This is neither a small-N suppression rule nor a claim that the floor is
     statistically adequate. It is the point below which the output is
     arithmetically incapable of a positive, which is a different and much lower
     bar (methodology §M3.3a).
+    """
+
+
+class EmptyUniverseError(ValueError):
+    """
+    Raised when a caller asks for a universe cut the frame cannot supply at all.
+
+    The shipped case is
+    ``cra_proxy_distribution(df, include_purchased=True)`` on a frame containing
+    no ``action_taken == 6`` row. That flag adds purchased loans as a separate,
+    labelled cut — and no loader in this package can produce a purchased loan:
+    ``load_from_api`` and ``load_range`` query the CFPB Data Browser with
+    ``actions_taken=1,2,3,4,5`` and ``load_sample`` generates only 1, 3 and 4.
+
+    **Why this is a refusal and not an empty result.** Through the 0.6.0 build
+    the call returned a fully populated four-row table — Low/Moderate/Middle/
+    Upper, every count ``0``, every share ``0.0`` — over a denominator of zero,
+    in the identical shape as the real distribution printed beside it. A reader
+    sees "this lender purchased no LMI loans"; the fact is "purchased loans were
+    never fetched". The mitigation was a caveat on ``table.caveat``, a *sibling*
+    of ``table.distribution``, so charting, exporting or concatenating the
+    distribution carried the zeros and dropped the caveat.
+
+    That is the third clause of the design commitment in the README's opening
+    section — "an arithmetically impossible flag raises" — and the identical
+    argument :class:`UnreachableFlagError` makes for ``is_lending_desert``:
+    a result that is incapable of being anything but empty is a fabricated
+    negative, not a finding.
+
+    **This is not the "well-formed query that matches no rows" case.** That rule
+    is real and this package honours it — ``lender_summary(df, lei=...)`` with an
+    unknown LEI returns an empty dict rather than raising. The difference is the
+    shape of the output, not the emptiness: an empty result cannot be mistaken
+    for a finding, and a populated table of zeros is built to be.
+
+    Subclasses ``ValueError`` like every other refusal about the caller's data.
     """
 
 
@@ -130,6 +176,79 @@ def _require_columns(df, required, fn_name):
         )
 
 
+def _object_column_holds_numbers(series) -> bool:
+    """Whether an ``object``-dtype column holds nothing but numbers.
+
+    ``pandas.api.types.is_numeric_dtype`` answers a question about the *dtype*,
+    and a column of ``decimal.Decimal`` — the natural dtype for a monetary
+    column arriving out of SQL ``NUMERIC`` through most DB-API drivers — is
+    ``object``. So is a column of ``fractions.Fraction``. Both are columns of
+    finite numbers that ``pd.cut`` bins correctly, and both were accepted
+    through v0.5.0; deciding on the dtype alone refused them.
+
+    ``numbers.Real`` covers ``Fraction`` and the numpy scalars. ``Decimal`` is
+    named separately because it is deliberately NOT registered as
+    ``numbers.Real``, so an ABC check on ``Real`` alone still refuses it. That
+    pair is the same gate cdfi-fund-tracker 0.2.0 arrived at for the same
+    defect, and ``bool`` is excluded here for the same reason it is excluded
+    there: ``bool`` is both ``numbers.Real`` and ``numbers.Integral``, so
+    without the clause a boolean column reads as a column of 1s and 0s.
+
+    **A null anywhere in an object column returns ``False``, and that asymmetry
+    with ``float64`` is deliberate and measured.** A ``float64`` ``income``
+    column containing ``NaN`` is ordinary — HMDA NA-income rows produce exactly
+    that — and ``pd.cut`` bins it correctly, so it is accepted and always has
+    been. An ``object`` column is different in fact, not merely in dtype::
+
+        pd.cut(Series([Decimal('50'), Decimal('NaN')], dtype=object))
+            -> decimal.InvalidOperation
+        pd.cut(Series([Decimal('50'), None],           dtype=object))
+            -> TypeError
+        pd.cut(Series([Decimal('50'), float('nan')],   dtype=object))
+            -> decimal.InvalidOperation
+
+    Neither ``decimal.InvalidOperation`` nor ``TypeError`` is a ``ValueError``,
+    so both escape every handler this package documents, and they surface from
+    inside the report's rendering — the partial-output failure the gate exists
+    to prevent. Admitting the column would move the crash rather than remove it.
+
+    So this is NOT a case of the object column being held to a stricter standard
+    than the ``float64`` column it stands in for. It is the same standard —
+    *can the downstream bin it* — applied to a column pandas genuinely cannot
+    bin. v0.5.0, which had no gate at all, did not "accept" a ``Decimal`` column
+    containing nulls either; it raised ``InvalidOperation`` from inside
+    ``pd.cut``. Refusing it here is that same failure, typed and named up front,
+    and the message says how to fix it.
+
+    A column with no non-null values returns ``False`` for the same reason.
+    Zero values is zero evidence that the column holds numbers, and guessing is
+    the failure mode this package refuses everywhere else.
+
+    Cost: this walks the column. It runs only on the ``object`` branch, which no
+    loader in this package produces — every frame from ``load_from_api``,
+    ``load_range``, ``load_from_file`` and ``load_sample`` is already coerced
+    with ``pd.to_numeric`` and takes the dtype fast path.
+    """
+    import numbers
+    from decimal import Decimal
+
+    import pandas as pd
+
+    seen = False
+    for value in series.to_numpy():
+        if value is None:
+            return False
+        try:
+            if bool(pd.isna(value)):
+                return False
+        except (TypeError, ValueError):
+            pass  # not a scalar pandas can answer for; fall through to the type check
+        if isinstance(value, bool) or not isinstance(value, (numbers.Real, Decimal)):
+            return False
+        seen = True
+    return seen
+
+
 def _require_numeric(df, column, fn_name):
     """
     Raise :class:`MissingColumnError` if ``df[column]`` is present but not numeric.
@@ -147,14 +266,60 @@ def _require_numeric(df, column, fn_name):
     through a section, which is the partial-output failure it promises not to
     produce.
 
+    Three branches, and each one is load-bearing:
+
+    * ``bool`` and ``complex`` are refused FIRST, ahead of the numeric-dtype
+      check, because ``is_numeric_dtype`` returns ``True`` for both. Through the
+      0.6.0 build a boolean ``income`` column passed this gate and was binned as
+      a column of 1s and 0s — a fabricated income distribution, produced
+      silently. A complex column reached ``pd.cut`` the same way.
+    * A genuine numeric dtype passes.
+    * An ``object`` column is inspected by :func:`_object_column_holds_numbers`,
+      which is what readmits ``Decimal`` and ``Fraction``.
+
+    Everything else — ``datetime64``, ``timedelta64``, strings, categoricals —
+    stays refused. ``datetime64`` and numeric strings are the two defects this
+    gate was built for (they used to reach ``pd.cut`` and die as a bare
+    ``ValueError`` and a ``TypeError`` respectively, mid-render), so the
+    widening is deliberately narrow enough not to readmit them.
+
     Absent columns are NOT reported here — call :func:`_require_columns` first.
     """
-    from pandas.api.types import is_numeric_dtype
+    from pandas.api.types import (
+        is_bool_dtype, is_complex_dtype, is_numeric_dtype, is_object_dtype,
+    )
 
-    if column in df.columns and not is_numeric_dtype(df[column]):
+    if column not in df.columns:
+        return
+
+    series = df[column]
+    if is_bool_dtype(series) or is_complex_dtype(series):
+        acceptable = False
+    elif is_numeric_dtype(series):
+        acceptable = True
+    elif is_object_dtype(series):
+        acceptable = _object_column_holds_numbers(series)
+    else:
+        acceptable = False
+
+    if not acceptable:
+        detail = (
+            f"  An 'object' column IS accepted when it is null-free and every "
+            f"value is a number: decimal.Decimal and fractions.Fraction both "
+            f"qualify, and Decimal is what a SQL NUMERIC column usually arrives "
+            f"as. This one does not qualify.\n"
+            f"  If the values are Decimals and the column simply contains NULLs, "
+            f"that is the common case and the coercion below is the fix — pandas "
+            f"cannot bin an object column containing nulls at all "
+            f"(pd.cut raises decimal.InvalidOperation or TypeError, neither of "
+            f"which is a ValueError), so it is refused here rather than left to "
+            f"fail mid-analysis.\n"
+            if is_object_dtype(series) else ""
+        )
         raise MissingColumnError(
             f"{fn_name} requires a numeric {column!r} column; got dtype "
-            f"{df[column].dtype!r}.\n"
+            f"{series.dtype!r}.\n"
+            + detail +
             f"  Frames from load_from_api(), load_range(), load_from_file() and "
             f"load_sample() are already coerced with pd.to_numeric; a frame built "
             f"by hand may not be. Fix with: "
@@ -169,4 +334,5 @@ __all__ = [
     "GeographyVintageError",
     "UnreachableFlagError",
     "ReferenceGroupError",
+    "EmptyUniverseError",
 ]

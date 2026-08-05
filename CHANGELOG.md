@@ -12,7 +12,7 @@ turn a refusal into whatever your fallback path does. Check your handlers.
 | If you were doing this | You now get | Do this instead |
 |---|---|---|
 | `lending_by_tract(df)` where `df` pools 2021 with 2022 | `GeographyVintageError` | The tract delineation changed at that boundary; the same GEOID means different ground. Split at the boundary and present two panels, or narrow: `lending_by_tract(df, vintage=2010)` / `vintage=2020`. |
-| `lending_by_county(df)` where `df` pools 2023 with 2024 | `GeographyVintageError` | Connecticut replaced eight counties with nine planning regions. Either `df[df["state_code"] != "CT"]` and re-run — every other key is unchanged — or split at the boundary. |
+| `lending_by_county(df)` where `df` pools 2023 with 2024 | `GeographyVintageError` | Connecticut replaced eight counties with nine planning regions. Split at the boundary into two panels, or narrow: `lending_by_county(df, vintage=2020)` for the 2023 rows / `vintage=2023` for the 2024 rows. Filtering Connecticut out does **not** clear it — the verdict is on the years the frame spans, not the rows it holds. |
 | Any guarded aggregation pooling 2024 or 2025 with another year | `GeographyVintageError` | 2024 and 2025 are **UNKNOWN**: no cited basis exists for them yet. A single-year 2024 or 2025 analysis still works and is *not* refused. Pooling needs a human to read the FFIEC census file vintage and add a cited entry. |
 | `lending_desert_score(df)` on a frame with ≤ 4 tracts | `UnreachableFlagError` | `is_lending_desert` cannot be `True` below 5 tracts, so the old all-`False` output was a fabricated negative. Use `lending_by_tract(df)` for the underlying counts, or widen the frame. |
 | `lending_desert_score(df, vintage=…)` that narrows below 5 tracts | `UnreachableFlagError` | Same. The floor is checked **after** narrowing, deliberately. |
@@ -24,10 +24,53 @@ turn a refusal into whatever your fallback path does. Check your handlers.
 | `lender_vs_market(df, lei)` output | Suppression columns are prefixed | `lender_suppressed_*` and `market_suppressed_*`. |
 | Reading a `load_from_api` frame | One extra column | `limit_truncated`. |
 | `from hmdaanalyzer.data.schema import CACHE_DIR` | `ImportError` | Removed with `loader.get_cache_dir()`. Neither was ever called and no cache was ever written. |
+| `cra_proxy_distribution(df, include_purchased=True)` on a frame with no `action_taken == 6` rows | `EmptyUniverseError` (new) | It used to return four category rows with every count `0` over a zero denominator — which reads as "purchased no LMI loans" when the fact is "purchased loans were never fetched". The `EMPTY PURCHASED CUT` caveat that mitigated it sat on `table.caveat`, a sibling of `table.distribution`, so charting/exporting/concatenating the distribution dropped it. Supply purchased loans via `load_from_file`, or drop the flag — `include_purchased=False` is the default and is unaffected. |
+| `racial_composition_by_tract(df)` | **Different numbers.** See "Changed output" below. | Not a refusal — read the next section before comparing against a 0.5.0 figure. |
 
-**Nothing that was correct before is refused now.** A single-year frame, a frame
-whose years share a basis, and a frame with no `activity_year` column at all are
-all unaffected.
+**Nothing that was correct before is refused now**, with one correction to that
+claim. A single-year frame, a frame whose years share a basis, and a frame with
+no `activity_year` column at all are all unaffected.
+
+The correction: a `decimal.Decimal` `income` column **was** briefly refused by
+the 0.6.0 build's dtype gate and is accepted again — see "Fixed" below. It is
+called out here because the sentence above was falsified by it, and a promise
+that has been wrong once should say so rather than be quietly re-asserted.
+
+### Changed output — `racial_composition_by_tract` denominator
+
+**The numbers this function returns move, and they move up.** Read this before
+comparing a 0.6.0 figure against a 0.5.0 one, or against any other package's.
+
+It was the only analysis in this package with no `action_taken` filter. Its
+denominator included action 4 (withdrawn by the applicant), action 5 (file closed
+for incompleteness) and action 6 (purchased loan — an origination somebody else
+made). Its nine siblings all filter `action_taken.isin([1, 2, 3])`. Both it and
+they emit a column named `denial_rate`.
+
+On a tract carrying one row per action 1–6:
+
+| | `applications` | `denial_rate` |
+|---|---|---|
+| `lending_by_tract` (unchanged) | 3 | 0.333 |
+| `racial_composition_by_tract` **0.5.0** | 6 | **0.167** |
+| `racial_composition_by_tract` **0.6.0** | 3 | **0.333** |
+
+The bias had a direction. Non-decision rows can only enlarge a denominator, so a
+per-`(tract, race)` fair-lending rate was systematically **understating denials**
+— the direction that matters most in this domain. Anyone who compared a 0.5.0
+figure from this function against another package's denial rate, or against
+`lending_by_tract` in this one, was comparing incompatible denominators.
+
+`applications` narrows too, not only `denial_rate`. `applications` means
+*actionable* applications at the nine other sites that emit it, and a tenth
+meaning for one column name is the drift rather than the cure for it. The cost,
+stated plainly: the racial **composition** is now the composition of actionable
+applications, not of every LAR row touching the tract. A tract whose rows are all
+withdrawals and purchases now yields no row at all — the honest answer, where a
+0.0 denial rate over a denominator of withdrawals was not.
+
+Pinned by `tests/test_action_taken_denominator.py`, which fails if the filter is
+removed from either column.
 
 ### Added — the census-geography vintage rule
 
@@ -98,6 +141,102 @@ all unaffected.
 - Both county-boundary change records are now **cited per entry** (87 FR 34235 /
   FR Doc. 2022-12063 for Connecticut; Census *Substantial Changes* for Alaska),
   closing the methodology's last release blocker.
+
+### Fixed — build 3, from the scoped hostile audit
+
+Ten findings. One changed a computed number (`racial_composition_by_tract`, in
+"Changed output" above); the rest put wrong instructions in front of a user at
+the moment of refusal, which in a fair-lending tool is its own category.
+
+- **A documented remedy that does not work is removed from all six places it
+  appeared.** "Exclude Connecticut and re-run" — `df[df["state_code"] != "CT"]` —
+  was in the README, the live `GeographyVintageError` message, this CHANGELOG's
+  upgrade table, the methodology document shipped inside the wheel, the README's
+  exception table, and **a test asserting it was present**, which meant deleting
+  it broke the suite.
+
+  It cannot work. `resolve_geography_vintage` compares the frame's **year set**
+  against the basis maps and never reads `state_code` or `county_code`, so no row
+  filter changes the verdict. Measured on a CT+IL 2023+2024 frame: after dropping
+  every Connecticut row, `lending_by_county` still refuses and `lending_by_tract`
+  still refuses. It was never executed before shipping.
+
+  Making the guard honour it was not an option — methodology coverage item 19
+  rejected state-scoping precisely because a verdict that depends on which rows a
+  frame holds can be disarmed by subsetting. Replaced by the two paths that were
+  executed and do work on both call paths: **split at the boundary into two
+  panels**, and **`vintage=` narrowing**. Every message now also states
+  positively that filtering the frame is not a way through.
+  `tests/test_refusal_remedies_execute.py` runs each replacement remedy against
+  the frame that triggers the refusal.
+- **The exception lede contradicted its own table.** It said "every type
+  subclasses `ValueError`, so existing `except ValueError` handlers keep working
+  unchanged", six lines above a row stating `CFPBAPIError` is a `RuntimeError`.
+  A reader who trusted the lede wrote `except ValueError` and every CFPB 403
+  escaped it. The lede now splits the types by what went wrong and says there is
+  no single base class that catches everything.
+- **A `decimal.Decimal` `income` column is accepted again.** 0.6.0's new dtype
+  gate used `is_numeric_dtype`, which is `False` for the `object` dtype a
+  `Decimal` column has — so a column v0.5.0 accepted, and on which it produced
+  byte-identical output to `float64`, became a `MissingColumnError`. `Decimal` is
+  the natural dtype for a monetary column out of SQL `NUMERIC`. `Fraction`,
+  `numpy` scalars and mixed numeric objects are accepted on the same footing;
+  `datetime64` and numeric strings — the two defects the gate was built for —
+  stay refused.
+
+  Two things the widening also closed, found while testing it: a **`bool`
+  `income` column passed the gate** (`is_numeric_dtype` is `True` for `bool`) and
+  was binned as a column of 1s and 0s, a fabricated income distribution produced
+  silently; a **`complex`** column reached `pd.cut` the same way. Both now raise.
+
+  An object column containing **nulls** is refused, and the asymmetry with
+  `float64` is deliberate and measured: `pd.cut` bins a `float64` column with
+  `NaN` correctly but cannot bin *any* null in an object column, failing with
+  `decimal.InvalidOperation` or `TypeError` — neither a `ValueError`, so neither
+  catchable by anything this README documents, and both raised from inside the
+  report's rendering. v0.5.0 did not accept that column either; it crashed. The
+  refusal names `pd.to_numeric(..., errors="coerce")` as the fix, and the suite
+  executes that fix on the refused frame.
+- **`vintage_dropped_rows` is always present**, `0` when nothing was dropped, and
+  `lender_summary`'s `dropped_rows_by_year` likewise (`{}`). It was the last
+  field in either channel still signalling by its own absence — the exact defect
+  the `*_status` columns were added to fix, left one field over in the same
+  output. A `vintage=` call that dropped nothing and a call with no `vintage=`
+  produced byte-identical column sets.
+
+  Making it unconditional exposed a second defect: `lender_summary` merges two
+  `provenance_keys()` dicts, and the county resolution — which never narrows and
+  so always reports `{}` — **overwrote the tract narrowing's real count**. Fixed
+  by keeping the record from the call that can narrow.
+- **`cra_proxy_distribution(..., include_purchased=True)` raises** on a frame
+  with no purchased loans instead of returning a zero table. See the upgrade
+  table above.
+- **The "every analysis" denominator claim is restated.** The README and
+  `schema.py` both said widening the fetched action set "would change the
+  denominator of every denial-rate, disparity and tract analysis in the package."
+  Measured: **one of ten** — and only because of the
+  `racial_composition_by_tract` defect above. With that fixed, **zero of ten**.
+  The decision not to widen is unchanged and stands on the argument that holds:
+  a purchased loan is not an application to this institution.
+- **The README attributed the tract refusal to the wrong mechanism.** It gave the
+  same example — a tract frame pooling 2023 with 2024 — for both the
+  consulted-map rule and the UNKNOWN rule, and only the second is real. Since the
+  uncited 2024 tract entry was removed, 2024 is UNMAPPED for tracts and the
+  UNKNOWN rule fires first; the county consult has no live case as shipped, which
+  `geography_vintage.py` already said and the README did not.
+- **Threshold literals removed from two docstrings.** `geographic.py` wrote
+  `denial_rate > 0.15` into the `lending_desert_score` formula display and
+  claimed "the 0.15 denial-rate floor is a bare literal at the comparison site" —
+  false since 0.6.0, and contradicted by a code comment ninety lines below it.
+  `exceptions.py` re-typed `app_percentile < 25` and `For n <= 4`. Both now name
+  the constants. The existing drift test splits source on `"""` and checks what
+  comes *after* — so docstrings were outside it, which is how two copies survived
+  a release that existed to remove them. Docstrings are now covered.
+- **`docs-check.toml` described its own boundary wrongly.** It listed "20.7M LAR
+  rows" and "the 42% GEOID figure" as unchecked README prose numbers. Neither is
+  in `README.md`; 20.7M lives in the `GeographyVintageError` message. Corrected,
+  and the skip-marked-block limitation is now recorded as a **demonstrated** gap
+  with the remedy defect as its instance, not as a theoretical one.
 
 ### Fixed — the pre-existing backlog
 

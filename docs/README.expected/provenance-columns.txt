@@ -2,3 +2,4 @@ tract_geoid_vintage = 2020
 tract_geoid_vintage_status = CITED
 county_code_vintage = 2020
 county_code_vintage_status = CITED
+vintage_dropped_rows = 0

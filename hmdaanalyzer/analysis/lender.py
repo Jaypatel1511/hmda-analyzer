@@ -73,11 +73,24 @@ def lender_summary(df: pd.DataFrame, lei: str = None, vintage: int = None) -> di
     if total == 0:
         return {}
 
+    # Provenance rides as explicit keys because no column can ride on a dict
+    # (§M3.3a, §M4.5). The two resolutions carry disjoint basis/status keys —
+    # they are named per map — but they BOTH carry `dropped_rows_by_year`, and
+    # a plain ** merge lets the last one win.
+    #
+    # That matters as of the fix that made the key always-present. The county
+    # resolution above is deliberately not given `vintage=` (the tract call does
+    # the narrowing, once), so it always reports {} — and merging it second
+    # overwrote the tract narrowing's real count with an empty dict. The
+    # narrowing record belongs to the call that could narrow, so that is the one
+    # kept, explicitly rather than by merge order.
+    tract_keys = tract_v.provenance_keys()
+    county_keys = county_v.provenance_keys()
+    county_keys.pop("dropped_rows_by_year", None)
+
     return {
-        # Provenance rides as explicit keys because no column can ride on a dict
-        # (§M3.3a, §M4.5).
-        **tract_v.provenance_keys(),
-        **county_v.provenance_keys(),
+        **tract_keys,
+        **county_keys,
         "total_applications":   total,
         "originations":         int(actionable["is_approved"].sum()),
         "denials":              int(actionable["is_denied"].sum()),

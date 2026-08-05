@@ -363,14 +363,21 @@ COUNTY_BOUNDARY_SCOPE: dict[tuple[int, int], str] = {
         "refusal is costing you an analysis that would have been correct.\n"
         "    It is still a refusal, deliberately: a national key scheme did "
         "change, and deciding on your behalf that your rows are unaffected is "
-        "the silent inference this library exists to not make. Two ways "
-        "through, both exact:\n"
-        "      a. Exclude Connecticut and re-run: df[df['state_code'] != 'CT'] "
-        "(or df[~df['county_code'].astype(str).str.startswith('09')]). Every "
-        "remaining key is unchanged across the boundary.\n"
-        "      b. Split at the boundary and present two panels, which is the "
-        "endorsed path for any vintage break and keeps Connecticut in "
-        "(§M5.2 option 1)."
+        "the silent inference this library exists to not make.\n"
+        "    FILTERING THE FRAME IS NOT A WAY THROUGH, and this message used to "
+        "say it was. The verdict above is computed from the YEARS the frame "
+        "spans, never from the rows it contains — so dropping every Connecticut "
+        "row leaves 2023 and 2024 both present and the identical refusal fires "
+        "on the filtered frame. That is deliberate (§M1.2b, coverage item 19): "
+        "a verdict that depended on which rows you kept could be disarmed by "
+        "subsetting. Two ways through, both exact, and both change the YEARS "
+        "rather than the rows:\n"
+        "      a. ENDORSED: split at the boundary and present two panels with "
+        "an explicit labelled break. Keeps Connecticut in, no estimation, no "
+        "non-random subsetting (§M5.2 option 1).\n"
+        "      b. Narrow to one basis with vintage=. For this boundary that is "
+        "vintage=2020 (selects the 2023 rows) or vintage=2023 (selects the 2024 "
+        "rows) — the basis year, not the data year."
     ),
 }
 
@@ -705,12 +712,24 @@ class VintageResolution:
             if basis is not None:
                 out[VINTAGE_COLUMN_BY_KEY[map_key]] = int(basis)
             out[VINTAGE_STATUS_COLUMN_BY_KEY[map_key]] = self._status(basis)
-        if self.dropped_rows_by_year:
-            # §M3.3a: the dropped years need a NAMED channel. A print or a
-            # warnings.warn dies exactly as warnings die — invisible on notebook
-            # re-run, absent from the artefact that outlives the session. The
-            # channel is the returned object.
-            out["vintage_dropped_rows"] = sum(self.dropped_rows_by_year.values())
+        # §M3.3a: the dropped years need a NAMED channel. A print or a
+        # warnings.warn dies exactly as warnings die — invisible on notebook
+        # re-run, absent from the artefact that outlives the session. The
+        # channel is the returned object.
+        #
+        # ALWAYS present, for the same reason the status columns are. Through
+        # the 0.6.0 build this was written only when rows were actually dropped,
+        # which left it signalling by its own absence — one field over from the
+        # status columns that had just been added to fix exactly that, in the
+        # same output. A vintage= narrowing that dropped nothing and a call with
+        # no vintage= at all produced byte-identical column sets, so a caller
+        # holding one frame could not tell "nothing was dropped" from "this
+        # output predates the column" or "something dropped it in transit".
+        #
+        # An int, not a float: a row count is a count, and a NaN here would flip
+        # the column to float64 — the stated reason the *basis* columns are
+        # omitted rather than nulled.
+        out["vintage_dropped_rows"] = int(sum(self.dropped_rows_by_year.values()))
         return out
 
     def provenance_keys(self) -> dict:
@@ -720,14 +739,17 @@ class VintageResolution:
         Carries the same facts as :meth:`attach`, including the status, because
         the dict channel had the identical defect: an UNKNOWN-year summary and a
         no-year-column summary were byte-identical dicts.
+
+        ``dropped_rows_by_year`` is always present too — ``{}`` when nothing was
+        dropped — for the same reason and by the same argument. It was the last
+        field in either channel still signalling by absence.
         """
         keys: dict = {}
         for map_key, basis in self.consulted_bases.items():
             if basis is not None:
                 keys[f"{map_key}_basis_year"] = int(basis)
             keys[f"{map_key}_basis_status"] = self._status(basis)
-        if self.dropped_rows_by_year:
-            keys["dropped_rows_by_year"] = dict(self.dropped_rows_by_year)
+        keys["dropped_rows_by_year"] = dict(self.dropped_rows_by_year)
         return keys
 
 
