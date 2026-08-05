@@ -419,3 +419,76 @@ def test_distribution_declares_an_author():
     # "Name <addr>"; setuptools leaves Author empty in that form.
     author = meta.get("Author-email") or meta.get("Author") or ""
     assert "Jay Patel" in author, f"no author in distribution metadata: {author!r}"
+
+
+# ── The README values docs-check structurally cannot check ───────────────────
+#
+# docs-check asserts that every name in __all__ APPEARS in the README
+# (assertion 6) and that every symbol it names IMPORTS (assertion 2). Neither
+# looks at a NUMBER quoted in prose. So the README can say
+# DESERT_PERCENTILE_THRESHOLD is 40, or that the floor is 3, and the gate stays
+# green — which is the drift §M3.3a exists to prevent, one document over.
+#
+# docs-check.toml records this as an explicit non-assertion. These tests close
+# it from the other side. They are here rather than in the gate because the gate
+# travels byte-identical across the portfolio and this coupling is repo-specific.
+
+
+def _readme_text():
+    """The README, located relative to THIS FILE rather than the cwd.
+
+    All four invocations that run this suite put README.md one level above
+    tests/: the source tree, test-wheel (from the checkout root), test-sdist
+    (from a directory assembled out of the tarball), and the docs-check job.
+    Resolving from ``__file__`` rather than ``Path.cwd()`` is what makes that
+    true in all four instead of three.
+    """
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parent.parent / "README.md"
+    assert path.is_file(), (
+        f"README.md not found at {path}. This test reads it deliberately; if the "
+        f"packaging changed so the README no longer ships beside tests/, fix the "
+        f"packaging or move this assertion — do NOT skip it."
+    )
+    return path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        # Each is the README's own prose, quoting a live constant's value.
+        "`DESERT_PERCENTILE_THRESHOLD` (25)",
+        "`DESERT_DENIAL_RATE_FLOOR` (0.15)",
+        "`DESERT_TRACT_FLOOR` (5)",
+    ],
+)
+def test_readme_quotes_constants_that_still_hold(phrase):
+    assert phrase in _readme_text(), (
+        f"README no longer contains {phrase!r}. Either the constant moved and the "
+        f"README was not updated, or the README was reworded — reconcile them."
+    )
+
+
+def test_readme_quoted_threshold_values_match_the_constants():
+    """The other half: the phrases above must quote the CURRENT values."""
+    readme = _readme_text()
+    assert f"`DESERT_PERCENTILE_THRESHOLD` ({DESERT_PERCENTILE_THRESHOLD})" in readme
+    assert f"`DESERT_DENIAL_RATE_FLOOR` ({DESERT_DENIAL_RATE_FLOOR})" in readme
+    assert f"`DESERT_TRACT_FLOOR` ({DESERT_TRACT_FLOOR})" in readme
+    assert f"fewer than **{schema.MIN_APPLICATIONS_FOR_RATE}**" in readme
+
+
+def test_readme_states_the_supported_python_range():
+    readme = _readme_text()
+    assert "Python **3.11 or newer**" in readme
+    assert "3.11, 3.12, 3.13 and 3.14" in readme
+
+
+def test_readme_column_count_claim_matches_the_schema():
+    """The '99 raw columns' figure appears in prose in two places."""
+    readme = _readme_text()
+    n = len(schema.RAW_LAR_COLUMNS)
+    assert n == 99
+    assert f"same {n} raw columns" in readme
+    assert f"the {n} raw CFPB columns" in readme

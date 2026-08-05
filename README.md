@@ -683,7 +683,7 @@ download the CSV directly from the HMDA Data Browser and load it with
     # docs-check: skip would recursively invoke the suite this gate runs inside
     pytest tests/ -v -m "not live"
 
-247 tests across all modules (offline/mocked; no live API calls). The suite
+253 tests across all modules (offline/mocked; no live API calls). The suite
 contains **zero skip markers** — a test that skips is a test that certifies
 nothing, and `empty_parameter_set_mark = "fail_at_collect"` turns an empty
 parametrize into a collection error rather than a silent skip.

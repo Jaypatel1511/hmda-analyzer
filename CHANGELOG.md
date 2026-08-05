@@ -182,8 +182,9 @@ recon, each re-verified against current code before being touched.
 - **`docs/README.expected/`** — committed stdout for the four README blocks
   marked `run`, including a real `GeographyVintageError` refusal that is now
   executed on every PR rather than merely described.
-- **`tests/test_backlog_0_6_0.py`** — 32 tests covering the six backlog items.
-  Suite goes from 215 to 247, still with zero skip markers.
+- **`tests/test_backlog_0_6_0.py`** — 38 tests covering the six backlog items
+  and the README-value coupling docs-check structurally cannot check.
+  Suite goes from 215 to 253, still with zero skip markers.
 
 ### Changed — packaging and CI
 
@@ -200,9 +201,9 @@ recon, each re-verified against current code before being touched.
 - **`MANIFEST.in`** ships `docs-check.toml`, `docs-check-denylist.txt`, `tools/`
   and `docs/README.expected/`, so the tarball carries everything needed to re-run
   the gate that certified it.
-- **`release.yml`'s sdist execution floor re-derived** from 55 to 120. The rule
+- **`release.yml`'s sdist execution floor re-derived** from 55 to 125. The rule
   stated in its own comment is "half of what the suite genuinely runs, rounded
-  down to a round number"; the suite has grown from 114 to 247, so 55 had drifted
+  down to a round number"; the suite has grown from 114 to 253, so 55 had drifted
   to roughly a fifth and no longer meant what the comment said.
 
 ### Documentation
@@ -210,7 +211,7 @@ recon, each re-verified against current code before being touched.
 - `CONTRIBUTING.md` states the supported Python range as **3.11–3.14**, matching
   `requires-python` and both CI matrices (it said 3.9–3.12 in two places).
 - **README rewritten for 0.6.0.** It claimed **86 tests** where the suite now
-  collects 247 — a live false claim, and the one docs-check assertion 3 exists to
+  collects 253 — a live false claim, and the one docs-check assertion 3 exists to
   catch. Beyond the count: the vintage rule, both paths through the 2023→2024
   refusal, the `vintage=` parameter including that it can narrow to nothing, the
   five-tract floor, the provenance columns in an output-columns table, a full

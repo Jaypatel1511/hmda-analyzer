@@ -36,7 +36,7 @@ dir = "docs/README.expected"
 
 [tests]
 path = "tests"
-# Matches a line like "247 tests across all modules ...". If the README makes no
+# Matches a line like "253 tests across all modules ...". If the README makes no
 # such claim the assertion is skipped -- but if it makes one, it must be true.
 claim_pattern = '^(\d+)\s+tests\b'
 
@@ -145,11 +145,17 @@ targets = ["README.md", "pyproject.toml", "setup.py"]
 #     The 99-column claim happens to be asserted by
 #     tests/test_geography_vintage.py; the rest are checked by a human or not at
 #     all.
-#   * THRESHOLD VALUES QUOTED IN PROSE. The README states
-#     DESERT_PERCENTILE_THRESHOLD as 25, DESERT_DENIAL_RATE_FLOOR as 0.15,
-#     MIN_APPLICATIONS_FOR_RATE as 5 and DESERT_TRACT_FLOOR as 5. Assertion 6
-#     checks the NAMES appear; nothing checks the quoted VALUES still match the
-#     constants. (The tract floor's derivation IS asserted by the suite.)
+#   * THRESHOLD VALUES QUOTED IN PROSE -- NOT BY THIS GATE, but covered
+#     elsewhere. The README states DESERT_PERCENTILE_THRESHOLD as 25,
+#     DESERT_DENIAL_RATE_FLOOR as 0.15, MIN_APPLICATIONS_FOR_RATE as 5 and
+#     DESERT_TRACT_FLOOR as 5. Assertion 6 checks only that the NAMES appear, so
+#     the README could quote any value and this gate would stay green.
+#     tests/test_backlog_0_6_0.py closes it from the other side: it reads
+#     README.md (located from __file__, so it works in all four invocations that
+#     run the suite) and asserts each quoted value against the live constant,
+#     plus the 99-column figure and the stated Python range. That coupling lives
+#     in the suite rather than here because docs_check.py travels byte-identical
+#     across the portfolio and this is repo-specific.
 #   * INSTANCE ATTRIBUTES AND METHODS. Assertion 2 resolves only top-level
 #     importable names. `result.tables`, `t.classified_denominator`,
 #     `t.excluded` and every `df.<method>` are never resolved.
@@ -208,7 +214,7 @@ targets = ["README.md", "pyproject.toml", "setup.py"]
 #     fair-lending-screener, not here.
 #   * assertion 1 -- all four run blocks match their committed stdout.
 #   * assertion 2 -- every symbol the blocks import resolves, from both paths.
-#   * assertion 3 -- the "247 tests" claim matches collection.
+#   * assertion 3 -- the "253 tests" claim matches collection.
 #   * assertion 5 -- both import names resolve to site-packages under the CI
 #     invocation.
 #
