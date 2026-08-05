@@ -45,7 +45,6 @@ from pathlib import Path
 
 import pytest
 
-import hmdaanalyzer
 from hmdaanalyzer import (
     ActivityYearMismatchError, CFPBAPIError, GeographyVintageError,
     MissingColumnError, ReferenceGroupError, SchemaValidationError,
@@ -56,15 +55,35 @@ from hmdaanalyzer.geography_vintage import (
     DESERT_DENIAL_RATE_FLOOR, DESERT_PERCENTILE_THRESHOLD, DESERT_TRACT_FLOOR,
 )
 
-README = Path(hmdaanalyzer.__file__).resolve().parent.parent / "README.md"
+#: Located from THIS FILE, not from the installed package and not from the cwd.
+#:
+#: The first version of this resolved it from ``hmdaanalyzer.__file__`` and
+#: skipped when it was absent. Under the sdist smoke test — pip-installed into a
+#: venv, suite run from a directory containing neither import name — the package
+#: lives in site-packages and the README does not, so nine assertions here and
+#: eleven in test_output_columns.py silently skipped. Twenty tests reporting
+#: success while asserting nothing, in a suite whose stated property is zero skip
+#: markers.
+#:
+#: All four invocations that run this suite put README.md one level above
+#: ``tests/``, which is what ``test_backlog_0_6_0.py`` already relies on.
+README = Path(__file__).resolve().parent.parent / "README.md"
 
 
 def _readme() -> str:
-    """Located from ``__file__`` rather than from the cwd, so this works in all
-    four invocations that run the suite (source tree, editable install, wheel
-    smoke test, sdist smoke test)."""
-    if not README.exists():
-        pytest.skip(f"README.md not beside the package at {README}")
+    """The README, read or failed — never skipped.
+
+    A skip here is the vacuity this repo's pytest configuration exists to
+    prevent: ``empty_parameter_set_mark = "fail_at_collect"`` turns an empty
+    parametrize into a collection error for exactly this reason, and a
+    conditional skip on a file that is always supposed to be there is the same
+    hole with a different shape.
+    """
+    assert README.exists(), (
+        f"README.md not found at {README}. These tests read it deliberately; if "
+        f"the packaging changed so the README no longer ships beside tests/, fix "
+        f"the path rather than skipping — a skip here certifies nothing."
+    )
     return README.read_text(encoding="utf-8")
 
 

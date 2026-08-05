@@ -180,11 +180,15 @@ def test_the_readme_table_actually_lists_these_columns(name, df):
     test that accepts shorthand is a test for the shorthand."""
     from pathlib import Path
 
-    import hmdaanalyzer
-
-    readme = Path(hmdaanalyzer.__file__).resolve().parent.parent / "README.md"
-    if not readme.exists():
-        pytest.skip("README.md not beside the package")
+    # Located from THIS FILE, not from the installed package — under the sdist
+    # smoke test the package is in site-packages and the README is not, and
+    # resolving it from the package made these eleven assertions skip silently.
+    # A skip is not a pass; asserted rather than skipped for that reason.
+    readme = Path(__file__).resolve().parent.parent / "README.md"
+    assert readme.exists(), (
+        f"README.md not found at {readme}. This test reads it deliberately; fix "
+        f"the path rather than skipping."
+    )
     text = readme.read_text(encoding="utf-8")
     section = text[text.index("### Output columns"):]
     section = section[:section.index("\n---")]
