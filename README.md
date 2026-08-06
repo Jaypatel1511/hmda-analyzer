@@ -30,7 +30,7 @@ If you are looking for the list of things that can stop your call, it is
 
 Python **3.9 or newer**. Tested on 3.9, 3.10, 3.11, 3.12, 3.13 and 3.14 — against
 the source tree, against the built wheel, and against the built sdist. Every
-version in that list is an entry in both CI matrices; none is asserted by
+version in that list is an entry in all three CI matrices; none is asserted by
 description alone.
 
 0.6.0 raised the floor to 3.11, which nothing in the package needed. 0.6.1 puts

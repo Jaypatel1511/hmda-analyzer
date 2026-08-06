@@ -356,15 +356,17 @@ jobs:
           # at job scale.
           #
           # FLOOR DERIVATION -- not a number picked to be safe. The rule is
-          # HALF of what the suite genuinely runs today, rounded down to a
-          # round number. Measured on the 0.6.0 tarball: 253 tests executed
-          # under this job's exact invocation. Half is 126.5, so the floor
-          # is 125.
+          # HALF of what the suite genuinely runs today, and half exactly:
+          # the old wording "rounded down to a round number" is undefined at
+          # its operative step (126.5 admitted 125, 120 or 100), which is part
+          # of how the constant drifted. Measured on the 0.6.1 tarball: 396
+          # tests executed under this job's exact invocation. Half is 198, so
+          # the floor is 198 -- the plain halving, no rounding step.
           #
-          # RE-DERIVED AT 0.6.0, and the re-derivation is the point. The floor
-          # was 55, correct when the suite ran 114. The suite now runs 253, so
-          # 55 had silently decayed to about a fifth -- still green, still
-          # "passing", and no longer the check its own comment describes. A
+          # RE-DERIVED AT 0.6.1, and the re-derivation is the point. The floor
+          # was 55, correct when the suite ran 114. 0.6.0 moved it to 125 by
+          # halving 253 -- a suite count that was never true; the suite ran
+          # 396 -- so 125 was 31.6% and caught only total deselection. A
           # constant whose stated rule no longer produces it is a comment that
           # lies, which is the same defect class as a gate that cannot fail.
           # If the suite grows again, re-derive again.
@@ -372,10 +374,10 @@ jobs:
           # Half, deliberately: the rejected `-lt 14` threshold sat at the
           # exact count shipping that day, so deleting one test module failed
           # the job with a packaging error for a deliberate source change.
-          # This one has ~128 tests of headroom -- you would have to delete
+          # This one has 198 tests of headroom -- you would have to delete
           # more than half the suite before it complains, while total
           # deselection lands at 0 and trips it immediately.
-          FLOOR=125
+          FLOOR=198
           EXECUTED="$(python - "${RUNNER_TEMP}/sdist-junit.xml" <<'PY'
           import sys, xml.etree.ElementTree as ET
           root = ET.parse(sys.argv[1]).getroot()

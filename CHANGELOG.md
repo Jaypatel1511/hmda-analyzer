@@ -4,7 +4,7 @@
 
 Metadata and CI only. **No behaviour changed.** Every function returns and
 raises exactly what 0.6.0 returned and raised; the diff is one `requires-python`
-line, the documents that repeated it, and two CI matrices.
+line, the documents that repeated it, and three CI matrices.
 
 ### Fixed
 
@@ -24,7 +24,7 @@ line, the documents that repeated it, and two CI matrices.
   A 3.9 or 3.10 user running `pip install --upgrade hmda-analyzer` did not get
   0.6.0; pip skipped it on `requires-python` and left them on 0.5.0. Over the 180
   days to 2026-08-05, PyPI recorded 85 downloads on 3.9 and 110 on 3.10 against
-  112 on 3.11 — the stranded interpreters outnumbered the newest supported one.
+  112 on 3.11 — the stranded interpreters outnumbered the lowest supported one.
 
   0.6.1 restores exactly 0.5.0's support contract, so the fix is reachable by
   ordinary upgrade. A floor bump may still happen; it should happen as its own
@@ -42,7 +42,7 @@ line, the documents that repeated it, and two CI matrices.
 
 ### Changed — CI
 
-- **Both matrices now run 3.9, 3.10, 3.11, 3.12, 3.13 and 3.14**: `test.yml`'s
+- **All three matrices now run 3.9, 3.10, 3.11, 3.12, 3.13 and 3.14**: `test.yml`'s
   `test` job, and `release.yml`'s `test-wheel` and `test-sdist`. A declared floor
   that no job exercises is the same defect this release exists to correct, one
   layer down — 0.6.0 declared 3.11 and tested 3.11, which is why nobody noticed
@@ -84,16 +84,71 @@ line, the documents that repeated it, and two CI matrices.
   all. No pin changed: that would be a behaviour change, and this is not that
   kind of release.
 
+- **Eight findings are deferred to 0.6.2, deliberately and by name.** This
+  release holds users on a defective version, so it ships the four corrections it
+  can make safely and defers everything that is new logic. Each of these was
+  reproduced before being written down:
+  - **Nothing links the README's six-version list or `requires-python` to the
+    workflow files.** Reverting all three matrices to 3.11–3.14 still gives 396
+    passed while `README.md:31-33` goes on asserting six. The release's central
+    claim is checked by nothing. First item in 0.6.2.
+  - **No job asserts its own interpreter** — no `python -V`, no `sys.version` in
+    either workflow, so the matrix is unverifiable from its own logs even when it
+    works. Three lines per matrixed job.
+  - **3.9 has no `ubuntu-26.04` build in the `actions/python-versions` manifest**
+    and every job is unpinned `ubuntu-latest`; when that label flips, the 3.9 row
+    stops provisioning in all three matrices, two of which gate publish. It fails
+    loud, so it is a will-fail-later, not a cannot-fail. The `runs-on:
+    ubuntu-24.04` pin waits for the flip to be announced.
+  - **`CONTRIBUTING.md:71-78` lists four of the release workflow's six jobs**
+    (missing `test-sdist` and `docs-check`) and says publish happens "only after
+    steps 1–3 all pass" when it needs five. This release edited line 75 of that
+    exact block and left the count wrong.
+  - **The floor test's regex reads `>3.9` and `!=3.9` as floor 3.9** — it
+    swallows the operator into a character class — and is not anchored to
+    `[project]`. Neither is reachable today. Anchoring to `>=` closes both and
+    makes every other operator fail loud, which is the polarity the rest of the
+    test already has.
+  - **`tests/test_backlog_0_6_0.py:456`'s docstring says "all four invocations
+    that run this suite"** and names `docs-check` as the fourth, but
+    `tools/docs_check.py:745` runs `pytest --collect-only`. Three invocations run
+    it.
+  - **`README.md:47` says "the same module object"** — the two modules are
+    distinct objects; the functions are identical, which is what the executed
+    block correctly asserts. One word: module → function.
+  - **`cra_proxy_distribution(load_sample())` still raises `MissingColumnError`**
+    (`ffiec_msa_md_median_family_income` is absent from the sample frame).
+
 ### Correction to the 0.6.0 entry
 
-- 0.6.0's entry states the suite "has grown from 114 to **253**", and the
-  `FLOOR` derivation comment in `release.yml` repeats that figure. **This is a
-  correction: the number is 396**, which is what the README claims and what
-  `docs-check` assertion 3 verifies against live collection. The `FLOOR = 125`
-  constant was derived as "half of 253"; against 396 its own stated rule would
-  give 198. The constant is left alone here — it is a live gate and changing it
-  is not a metadata change — but it is recorded as understating its rule by
-  roughly a third.
+- **The 0.6.0 entry states the suite size in four places; three of the figures
+  are wrong.** Measured by live collection: v0.5.0 ran **114**, 0.6.0 and 0.6.1
+  run **396**, `tests/test_backlog_0_6_0.py` contributes **38** of those, so the
+  suite immediately before that file was **358**. Against that — "Suite goes
+  from 215 to 253" is wrong at **both** ends; it is 358 to 396, understating the
+  suite by 143, and no prior document mentioned it. "has grown from 114 to 253"
+  is wrong only at the second end: **114 is accurate**. "the suite now collects
+  253" is wrong. **The number is 396** in all three places, which is what the
+  README claims and what `docs-check` assertion 3 verifies against live
+  collection.
+
+  That 114 survives is worth stating rather than leaving implied. It is the
+  count from which `FLOOR = 55` was correctly derived at v0.5.0, so a reader
+  re-deriving this history has exactly one anchor that holds.
+- **`FLOOR` is corrected from 125 to 198 in this release**, and it is the only
+  live change here. It had been derived as "half of 253" from the figure above;
+  against the real 396 its own stated rule gives 198. At 125 the gate stood at
+  31.6% of the suite and caught only total deselection — a run executing 149
+  tests, with 247 silently deselected, passed it. Every interpreter runs 396, so
+  198 leaves 198 of headroom and cannot redden a true run. The integer changed;
+  the derivation shell did not.
+- **A live CI constant was derived from ungated prose and was wrong by 36%.**
+  `docs-check` assertion 3 checks the test-count claim against live collection in
+  the README, which says 396 and is right. It has no CHANGELOG assertion, so the
+  copy the constant was actually read from was checked by nothing. That is the
+  finding, and it is the argument for deriving `FLOOR` from the README rather
+  than hardcoding it — deferred to 0.6.2, because it is new logic in the publish
+  path.
 - 0.6.0's entry is **correct** about the small-N suppression's span. It says
   `denial_rate_by_race` "has always dropped `derived_race` groups with fewer than
   five actionable applications", which matches the published sdists; it does not
@@ -447,7 +502,7 @@ recon, each re-verified against current code before being touched.
 ### Documentation
 
 - `CONTRIBUTING.md` states the supported Python range as **3.11–3.14**, matching
-  `requires-python` and both CI matrices (it said 3.9–3.12 in two places).
+  `requires-python` and all three CI matrices (it said 3.9–3.12 in two places).
 - **README rewritten for 0.6.0.** It claimed **86 tests** where the suite now
   collects 253 — a live false claim, and the one docs-check assertion 3 exists to
   catch. Beyond the count: the vintage rule, both paths through the 2023→2024
