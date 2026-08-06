@@ -142,6 +142,13 @@ line, the documents that repeated it, and three CI matrices.
   tests, with 247 silently deselected, passed it. Every interpreter runs 396, so
   198 leaves 198 of headroom and cannot redden a true run. The integer changed;
   the derivation shell did not.
+- **The 0.6.0 entry also miscounts the CI matrices**, saying "both" where there
+  were three: `test.yml`'s `test`, and `release.yml`'s `test-wheel` and
+  `test-sdist`, all three at 3.11–3.14. The count was wrong when written. It is
+  corrected here rather than in place because that entry ships inside the
+  published 0.6.0 sdist, which is immutable — editing the repo copy would
+  silently diverge the two with nothing recording that it happened. Same reason
+  the figures above are corrected here and left standing there.
 - **A live CI constant was derived from ungated prose and was wrong by 36%.**
   `docs-check` assertion 3 checks the test-count claim against live collection in
   the README, which says 396 and is right. It has no CHANGELOG assertion, so the
@@ -502,7 +509,7 @@ recon, each re-verified against current code before being touched.
 ### Documentation
 
 - `CONTRIBUTING.md` states the supported Python range as **3.11–3.14**, matching
-  `requires-python` and all three CI matrices (it said 3.9–3.12 in two places).
+  `requires-python` and both CI matrices (it said 3.9–3.12 in two places).
 - **README rewritten for 0.6.0.** It claimed **86 tests** where the suite now
   collects 253 — a live false claim, and the one docs-check assertion 3 exists to
   catch. Beyond the count: the vintage rule, both paths through the 2023→2024
