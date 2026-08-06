@@ -104,7 +104,9 @@ think they were missed: `include_purchased` unreachability; small-N suppression;
 the `limit`-is-truncation caveat; the `lending_desert_score` formula itself; the
 README's "86 tests" claim (`pytest` collects 114); and any change to
 `fair-lending-screener`. Already settled elsewhere and not re-litigated here:
-0.6.0 declares `requires-python = ">=3.11"`; the CI workflow's `name:` becomes
+0.6.0 declares `requires-python = ">=3.11"` (0.6.1 lowered it back to `>=3.9`,
+which is what this package actually supports — the line above records what 0.6.0
+decided, not the current floor); the CI workflow's `name:` becomes
 `CI` with the filename `test.yml` unchanged; `docs-check` adoption rides this
 release.
 

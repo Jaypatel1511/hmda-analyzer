@@ -28,8 +28,14 @@ If you are looking for the list of things that can stop your call, it is
 
 ## Requirements
 
-Python **3.11 or newer**. Tested on 3.11, 3.12, 3.13 and 3.14 — against the
-source tree, against the built wheel, and against the built sdist.
+Python **3.9 or newer**. Tested on 3.9, 3.10, 3.11, 3.12, 3.13 and 3.14 — against
+the source tree, against the built wheel, and against the built sdist. Every
+version in that list is an entry in both CI matrices; none is asserted by
+description alone.
+
+0.6.0 raised the floor to 3.11, which nothing in the package needed. 0.6.1 puts
+it back where 0.5.0 had it, so the two silent defects 0.6.0 fixed are reachable
+by ordinary `pip install --upgrade` on 3.9 and 3.10.
 
 ---
 

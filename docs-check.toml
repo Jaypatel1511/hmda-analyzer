@@ -66,7 +66,7 @@ targets = ["README.md", "pyproject.toml", "setup.py"]
 # Re-derived with `--list-blocks`, not incremented by hand.)
 #
 # THE FOUR THAT RUN were chosen so that assertion 1 covers behaviour that
-# matters and produces output that is stable across the 3.11-3.14 matrix:
+# matters and produces output that is stable across the 3.9-3.14 matrix:
 #   * dual-import        — the two import paths are the same module object.
 #   * vintage-basis      — the basis maps across the 2021→2024 boundary,
 #                          including `None` for the UNKNOWN 2024 tract entry.

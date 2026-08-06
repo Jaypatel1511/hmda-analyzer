@@ -4,10 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hmda-analyzer"
-version = "0.6.0"
+version = "0.6.1"
 description = "HMDA mortgage lending disparity analyzer — denial rates, racial disparities, lending deserts, and lender benchmarking"
 readme = "README.md"
-requires-python = ">=3.11"
+# SINGLE SOURCE OF THE SUPPORT CLAIM. There are deliberately no
+# `Programming Language :: Python :: X.Y` classifiers: a second list of
+# supported versions is a second thing to keep in step with the CI matrix, and
+# nothing reads it. Anyone adding classifiers here takes on that synchronisation
+# job, and should add a gate for it at the same time.
+# Restored to 0.5.0's floor in 0.6.1. Nothing in the package needs 3.11 — no
+# `match`, no `tomllib`, no `Self`, no `ExceptionGroup`, no
+# `date.fromisoformat`. The 3.11 floor was set by convention in 0.6.0 and it
+# stranded 3.9/3.10 users on releases carrying both defects 0.6.0 fixed.
+requires-python = ">=3.9"
 license = "MIT"
 # Portfolio-wide metadata item. Absent through 0.5.0, so every published
 # hmda-analyzer release carried no author: PyPI rendered the Author field empty

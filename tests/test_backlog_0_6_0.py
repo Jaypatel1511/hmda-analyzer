@@ -496,9 +496,41 @@ def test_readme_quoted_threshold_values_match_the_constants():
 
 
 def test_readme_states_the_supported_python_range():
+    """The README's floor is DERIVED from ``requires-python``, not typed twice.
+
+    0.6.0 hard-coded ``"Python **3.11 or newer**"`` here, which meant the floor
+    was declared in two files and asserted against neither — change one and this
+    test fails with no indication that the other is the authority. 0.6.1 reads
+    ``pyproject.toml`` (present beside ``README.md`` in all four invocations, the
+    same property ``_readme_text`` relies on) so the two cannot drift apart.
+
+    Read with a regex rather than ``tomllib``: ``tomllib`` is 3.11+, and a test
+    of a 3.9 floor that can only run on 3.11 asserts nothing where it matters.
+
+    The matrix sentence stays a literal. It is a claim about the CI workflows,
+    and the workflows do not ship in the sdist — deriving it would either make
+    this test unrunnable from the tarball or need a skip, and a skip is how a
+    gate stops being one.
+    """
+    import re
+    from pathlib import Path
+
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    assert pyproject.is_file(), f"pyproject.toml not found at {pyproject}"
+    m = re.search(
+        r'^requires-python\s*=\s*"[><=~!]*\s*(\d+)\.(\d+)',
+        pyproject.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    assert m, "no requires-python line found in pyproject.toml"
+    floor = f"{m.group(1)}.{m.group(2)}"
+
     readme = _readme_text()
-    assert "Python **3.11 or newer**" in readme
-    assert "3.11, 3.12, 3.13 and 3.14" in readme
+    assert f"Python **{floor} or newer**" in readme, (
+        f"pyproject declares a floor of {floor}; the README does not say so. "
+        f"These are one claim in two files — reconcile them."
+    )
+    assert "3.9, 3.10, 3.11, 3.12, 3.13 and 3.14" in readme
 
 
 def test_readme_column_count_claim_matches_the_schema():

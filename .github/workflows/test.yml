@@ -24,8 +24,15 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      # Without this, one red interpreter cancels the others and the run reports
+      # a single failure — hiding whether the break is 3.9-only or everywhere.
+      # test-wheel and test-sdist already set it; this job did not.
+      fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        # 3.9 and 3.10 restored in 0.6.1 alongside `requires-python = ">=3.9"`.
+        # The floor and this list are one claim; changing either alone is the
+        # drift the version bump exists to end.
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

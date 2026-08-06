@@ -1,5 +1,104 @@
 # CHANGELOG
 
+## [0.6.1] - 2026-08-05
+
+Metadata and CI only. **No behaviour changed.** Every function returns and
+raises exactly what 0.6.0 returned and raised; the diff is one `requires-python`
+line, the documents that repeated it, and two CI matrices.
+
+### Fixed
+
+- **`requires-python` lowered from `>=3.11` back to `>=3.9`.** 0.6.0 raised the
+  floor, and nothing in the package needed it. There is no `match` statement, no
+  `tomllib` import, no `typing.Self`, no `ExceptionGroup` or `except*`, and zero
+  uses of `date.fromisoformat` — which was the stated portfolio-wide reason for a
+  3.11 floor. The one module using PEP 604 `int | None` syntax,
+  `geography_vintage.py`, carries `from __future__ import annotations`, so those
+  annotations are strings and never evaluated. The floor was set by convention,
+  not by a requirement.
+
+  The cost was not theoretical. 0.6.0 closed two silent defects in a fair-lending
+  tool — a tract-vintage collapse that pooled GEOIDs denoting different polygons,
+  and a small-N suppression that dropped protected classes with no signal — and
+  then put them behind a floor that excluded the users most likely to hit them.
+  A 3.9 or 3.10 user running `pip install --upgrade hmda-analyzer` did not get
+  0.6.0; pip skipped it on `requires-python` and left them on 0.5.0. Over the 180
+  days to 2026-08-05, PyPI recorded 85 downloads on 3.9 and 110 on 3.10 against
+  112 on 3.11 — the stranded interpreters outnumbered the newest supported one.
+
+  0.6.1 restores exactly 0.5.0's support contract, so the fix is reachable by
+  ordinary upgrade. A floor bump may still happen; it should happen as its own
+  decision, argued on its own merits, once users are on a release that is not
+  silently wrong.
+
+- **Every other statement of the floor updated with it**, because a support claim
+  declared in six places drifts: `README.md`, `CONTRIBUTING.md` (two places),
+  `docs-check.toml`'s note on output stability, the in-package methodology
+  document, and the test that asserts the README's wording. That test now
+  *derives* the floor from `pyproject.toml` instead of hard-coding it, so the two
+  files cannot disagree silently. It reads the value with a regex rather than
+  `tomllib`, because `tomllib` is 3.11+ and a test of a 3.9 floor that cannot run
+  on 3.9 asserts nothing where it matters.
+
+### Changed — CI
+
+- **Both matrices now run 3.9, 3.10, 3.11, 3.12, 3.13 and 3.14**: `test.yml`'s
+  `test` job, and `release.yml`'s `test-wheel` and `test-sdist`. A declared floor
+  that no job exercises is the same defect this release exists to correct, one
+  layer down — 0.6.0 declared 3.11 and tested 3.11, which is why nobody noticed
+  the declaration was arbitrary.
+- **`test.yml`'s `test` job sets `fail-fast: false`.** It was the only matrixed
+  job in either workflow without it, so one red interpreter cancelled the rest
+  and the run reported a single failure — hiding whether a break is version
+  specific or universal. Exactly the information a six-entry matrix exists to
+  produce.
+
+### Not done, deliberately
+
+- **No release is yanked, and the reason is worth stating.** With the floor
+  restored, every 0.5.0 user reaches 0.6.1 by ordinary upgrade, so a yank buys
+  nothing. It would also actively hurt: yanking 0.5.0 resolves a user pinned to
+  `<0.6` down to 0.4.0, which carries **both** defects at identical source lines
+  (`analysis/geographic.py:25`, `analysis/disparity.py:36`) with fewer features.
+  Both defects are present in every published release — verified against the
+  published sdists, `geographic.py:21` / `disparity.py:31` in 0.1.0 through
+  0.2.1, and `:25` / `:36` in 0.3.0 through 0.5.0. There is no release to yank
+  *toward*.
+- **No `Programming Language :: Python :: X.Y` classifiers were added.**
+  `requires-python` stays the single source of the support claim; a second list
+  is a second thing to keep in step with the CI matrix, and nothing reads it. The
+  decision is now recorded as a comment beside the line itself.
+- **The declared dependency lower bounds are unchanged — and, for the first time,
+  measured.** `pandas>=1.4.0` and `numpy>=1.21.0` had never been installed by any
+  job; the expectation going in was that they were false floors. They are not.
+  The full suite passes at exactly `pandas==1.4.0` / `numpy==1.21.0` on Python
+  3.9: 396 passed, 11 `FutureWarning`s, no failures. The declared floors are
+  honest.
+
+  This matters more after 0.6.1 than before it, and in the opposite direction to
+  the obvious one. Lowering `requires-python` widens the resolution space toward
+  those floors — a 3.9 resolver has old pandas and numpy versions available that
+  a 3.12 resolver does not, and `pandas==1.4.0` cannot even be built on 3.12. So
+  the declared minimum is reachable *only* on the interpreters this release
+  re-admits. Restoring the floor is what made the dependency floor testable at
+  all. No pin changed: that would be a behaviour change, and this is not that
+  kind of release.
+
+### Correction to the 0.6.0 entry
+
+- 0.6.0's entry states the suite "has grown from 114 to **253**", and the
+  `FLOOR` derivation comment in `release.yml` repeats that figure. **This is a
+  correction: the number is 396**, which is what the README claims and what
+  `docs-check` assertion 3 verifies against live collection. The `FLOOR = 125`
+  constant was derived as "half of 253"; against 396 its own stated rule would
+  give 198. The constant is left alone here — it is a live gate and changing it
+  is not a metadata change — but it is recorded as understating its rule by
+  roughly a third.
+- 0.6.0's entry is **correct** about the small-N suppression's span. It says
+  `denial_rate_by_race` "has always dropped `derived_race` groups with fewer than
+  five actionable applications", which matches the published sdists; it does not
+  date the defect to 0.5.0. No correction needed there.
+
 ## [0.6.0] - 2026-08-05
 
 ### UPGRADING FROM 0.5.0 — READ THIS FIRST

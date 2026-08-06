@@ -154,7 +154,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        # See the note on test.yml's matrix: this list and `requires-python` are
+        # one claim. A published wheel tested on four interpreters is a claim
+        # about four interpreters, and 0.6.0's floor said six.
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -228,7 +231,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        # Same list as test-wheel and test.yml, for the same reason.
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       # NOTE: deliberately NO actions/checkout. If the checkout is absent, it
