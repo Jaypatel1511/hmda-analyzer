@@ -37,7 +37,11 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Jaypatel1511/hmda-analyzer"
+Homepage = "https://jaypatel1511.github.io/cdfi-superpowers/"
+Repository = "https://github.com/Jaypatel1511/hmda-analyzer"
+Documentation = "https://github.com/Jaypatel1511/hmda-analyzer#readme"
+Issues = "https://github.com/Jaypatel1511/hmda-analyzer/issues"
+Changelog = "https://github.com/Jaypatel1511/hmda-analyzer/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["."]
