@@ -18,7 +18,11 @@ jobs:
   # ── Step 1: Verify the git tag matches pyproject.toml ─────────────────────
   verify-version:
     name: Guard — tag must match pyproject.toml
-    runs-on: ubuntu-latest
+    # Runner pinned, not `ubuntu-latest`: actions/python-versions ships NO Python
+    # 3.9 build for ubuntu-26.04, and the `ubuntu-latest` label moves to Ubuntu 26
+    # on 2026-10-19. Remove this pin once this repo's Python floor rises above 3.9
+    # and every version in every matrix here has an ubuntu-26.04 build.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -48,7 +52,11 @@ jobs:
   build:
     name: Build wheel
     needs: verify-version
-    runs-on: ubuntu-latest
+    # Runner pinned, not `ubuntu-latest`: actions/python-versions ships NO Python
+    # 3.9 build for ubuntu-26.04, and the `ubuntu-latest` label moves to Ubuntu 26
+    # on 2026-10-19. Remove this pin once this repo's Python floor rises above 3.9
+    # and every version in every matrix here has an ubuntu-26.04 build.
+    runs-on: ubuntu-24.04
     outputs:
       wheel-filename: ${{ steps.find-wheel.outputs.wheel-filename }}
     steps:
@@ -150,7 +158,11 @@ jobs:
   test-wheel:
     name: Test wheel — Python ${{ matrix.python-version }}
     needs: build
-    runs-on: ubuntu-latest
+    # Runner pinned, not `ubuntu-latest`: actions/python-versions ships NO Python
+    # 3.9 build for ubuntu-26.04, and the `ubuntu-latest` label moves to Ubuntu 26
+    # on 2026-10-19. Remove this pin once this repo's Python floor rises above 3.9
+    # and every version in every matrix here has an ubuntu-26.04 build.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -227,7 +239,11 @@ jobs:
   test-sdist:
     name: Test sdist — Python ${{ matrix.python-version }}
     needs: build
-    runs-on: ubuntu-latest
+    # Runner pinned, not `ubuntu-latest`: actions/python-versions ships NO Python
+    # 3.9 build for ubuntu-26.04, and the `ubuntu-latest` label moves to Ubuntu 26
+    # on 2026-10-19. Remove this pin once this repo's Python floor rises above 3.9
+    # and every version in every matrix here has an ubuntu-26.04 build.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -411,7 +427,11 @@ jobs:
   docs-check:
     name: docs-check (README vs installed wheel)
     needs: [build]
-    runs-on: ubuntu-latest
+    # Runner pinned, not `ubuntu-latest`: actions/python-versions ships NO Python
+    # 3.9 build for ubuntu-26.04, and the `ubuntu-latest` label moves to Ubuntu 26
+    # on 2026-10-19. Remove this pin once this repo's Python floor rises above 3.9
+    # and every version in every matrix here has an ubuntu-26.04 build.
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -461,7 +481,11 @@ jobs:
   publish:
     name: Publish to PyPI
     needs: [verify-version, build, test-wheel, test-sdist, docs-check]
-    runs-on: ubuntu-latest
+    # Runner pinned, not `ubuntu-latest`: actions/python-versions ships NO Python
+    # 3.9 build for ubuntu-26.04, and the `ubuntu-latest` label moves to Ubuntu 26
+    # on 2026-10-19. Remove this pin once this repo's Python floor rises above 3.9
+    # and every version in every matrix here has an ubuntu-26.04 build.
+    runs-on: ubuntu-24.04
     environment:
       name: pypi
       url: https://pypi.org/project/hmda-analyzer/
